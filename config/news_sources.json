@@ -1,0 +1,44 @@
+[
+    {
+        "name": "Python.org News",
+        "url": "https://www.python.org/blogs/",
+        "title_selector": "h3.event-title",
+        "link_selector": "a"
+    },
+    {
+        "name": "Microsoft Azure Blog Fabric",
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-service-fabric/",
+        "title_selector": "h3.msx-card__title > a",
+        "link_selector": "a.msx-card.msx-card__title "
+    },
+    {
+        "name": "Microsoft Azure Blog Databricks",
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-databricks/",
+        "title_selector": "h3.msx-card__title > a",
+        "link_selector": "a.msx-card.msx-card__title "
+    },
+    {
+        "name": "Microsoft Azure Blog Data Factory",
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-data-factory/",
+        "title_selector": "h3.msx-card__title > a",
+        "link_selector": "a.msx-card.msx-card__title "
+    },
+    {
+        "name": "Microsoft Azure Blog Data Lake Storage",
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-data-lake-storage/",
+        "title_selector": "h3.msx-card__title > a",
+        "link_selector": "a.msx-card.msx-card__title "
+    },
+    {
+        "name": "Hacker News",
+        "url": "https://news.ycombinator.com/",
+        "title_selector": "td.title > a",
+        "link_selector": "td.title > a"
+    },
+    {
+        "name": "DBT labs blog",
+        "url": "https://www.getdbt.com/blog",
+        "title_selector": "h3.heading-4 > a",
+        "link_selector": "h3.heading-4 > a"
+    } 
+] 
