@@ -3,12 +3,20 @@ from airflow.sdk import Variable
 import os
 import logging
 from datetime import datetime, timedelta
-import json 
+import json
 
 # Importa le funzioni dai tuoi file nella cartella 'include'
 from webscraping_airflow_pipeline.include.fetch_news import fetch_headlines_from_source
-from webscraping_airflow_pipeline.include.store_news import init_db, store_filtered_news, get_db_path
-from webscraping_airflow_pipeline.include.utils import load_news_sources_config, load_keywords_config, generate_news_email_content
+from webscraping_airflow_pipeline.include.store_news import (
+    init_db,
+    store_filtered_news,
+    get_db_path,
+)
+from webscraping_airflow_pipeline.include.utils import (
+    load_news_sources_config,
+    load_keywords_config,
+    generate_news_email_content,
+)
 from webscraping_airflow_pipeline.include.send_telegram import send_telegram_message
 
 # --- Configurazione Generale del Progetto ---
@@ -33,6 +41,7 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
 }
 
+
 @dag(
     dag_id="news_feed_pipeline",
     default_args=default_args,
@@ -49,7 +58,6 @@ def news_feed_pipeline():
         db_name = "news_feed.db"
         init_db(DATA_DIR, db_name)
         return get_db_path(DATA_DIR, db_name)
-
 
     @task
     def fetch_all_headlines(source_config: dict):
@@ -107,14 +115,15 @@ def news_feed_pipeline():
         )
 
         return newly_added_articles
-    
+
     @task
     def generate_notification_content_task(newly_added_articles: list):
-        dag_logger.info(f"Generazione contenuto notifica per {len(newly_added_articles)} nuovi articoli.")
-        notification_body = generate_news_email_content(newly_added_articles) 
+        dag_logger.info(
+            f"Generazione contenuto notifica per {len(newly_added_articles)} nuovi articoli."
+        )
+        notification_body = generate_news_email_content(newly_added_articles)
         return notification_body
 
-    
     @task
     def send_telegram_news(notification_body: str):
         """Invia la notifica su Telegram."""
@@ -123,47 +132,48 @@ def news_feed_pipeline():
         chat_id = Variable.get("TELEGRAM_CHAT_ID")
 
         if not all([bot_token, chat_id]):
-            dag_logger.error(f"Credenziali Telegram BOT_TOKEN {bot_token} o CHAT_ID {chat_id} mancanti. Impossibile inviare la notifica.")
+            dag_logger.error(
+                f"Credenziali Telegram BOT_TOKEN {bot_token} o CHAT_ID {chat_id} mancanti. Impossibile inviare la notifica."
+            )
             raise ValueError("Credenziali Telegram non configurate correttamente.")
 
         # Telegram ha un limite di 4096 caratteri per messaggio HTML.
         # Se il tuo body è più lungo, dovrai dividerlo o inviarlo come file.
         # Per ora, inviamo solo i primi 4000 caratteri se è troppo lungo.
         if len(notification_body) > 4096:
-            dag_logger.warning("Contenuto del messaggio Telegram troppo lungo. Sarà troncato.")
+            dag_logger.warning(
+                "Contenuto del messaggio Telegram troppo lungo. Sarà troncato."
+            )
             notification_body = notification_body[:4000] + "..."
 
         send_telegram_message(
-            bot_token=bot_token,
-            chat_id=chat_id,
-            message=notification_body
+            bot_token=bot_token, chat_id=chat_id, message=notification_body
         )
-    
+
     # --- Definizione delle Dipendenze ---
     _sources_to_fetch = load_news_sources_config(NEWS_SOURCES_CONFIG_FILE)
-    _keywords_to_use = load_keywords_config(KEYWORDS_CONFIG_FILE)    
-    
+    _keywords_to_use = load_keywords_config(KEYWORDS_CONFIG_FILE)
+
     # 1. Inizializzazione DB (indipendente dagli altri caricamenti)
-    _db_path = initialize_db_task() 
+    _db_path = initialize_db_task()
 
     # 2. Fetch delle notizie. Dipende dalle fonti caricate.
-    _all_fetched_articles = fetch_all_headlines.partial().expand(source_config=_sources_to_fetch)
-    
+    _all_fetched_articles = fetch_all_headlines.partial().expand(
+        source_config=_sources_to_fetch
+    )
+
     # 3. Filtra e memorizza. Dipende dal fetch (che ha finito di aggregare tutti i risultati)
     #    e dall'inizializzazione del DB e dal caricamento delle keyword.
     _filtered_and_stored_news = filter_and_store_all_news(
-        _all_fetched_articles,
-        _db_path,
-        _keywords_to_use
+        _all_fetched_articles, _db_path, _keywords_to_use
     )
-    
+
     _notification_body = generate_notification_content_task(_filtered_and_stored_news)
     _send_news_to_telegram = send_telegram_news(_notification_body)
-    
+
     _db_path >> _all_fetched_articles >> _filtered_and_stored_news
     _filtered_and_stored_news >> _notification_body >> _send_news_to_telegram
 
 
 # Istanzia il DAG
 news_feed_pipeline()
-
