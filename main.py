@@ -1,20 +1,21 @@
 from airflow.decorators import dag, task
+from airflow.sdk import Variable
 import os
 import logging
 from datetime import datetime, timedelta
 import json 
 
 # Importa le funzioni dai tuoi file nella cartella 'include'
-from newspaper_pipeline.include.fetch_news import fetch_headlines_from_source
-from newspaper_pipeline.include.store_news import init_db, store_filtered_news, get_db_path
-from newspaper_pipeline.include.utils import load_news_sources_config, load_keywords_config, generate_news_email_content
-from newspaper_pipeline.include.send_telegram import send_telegram_message
+from webscraping_airflow_pipeline.include.fetch_news import fetch_headlines_from_source
+from webscraping_airflow_pipeline.include.store_news import init_db, store_filtered_news, get_db_path
+from webscraping_airflow_pipeline.include.utils import load_news_sources_config, load_keywords_config, generate_news_email_content
+from webscraping_airflow_pipeline.include.send_telegram import send_telegram_message
 
 # --- Configurazione Generale del Progetto ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DATA_DIR = os.path.join(PROJECT_ROOT, "newspaper_pipeline/data")
-CONFIG_DIR = os.path.join(PROJECT_ROOT, "newspaper_pipeline/config")
+DATA_DIR = os.path.join(PROJECT_ROOT, "webscraping_airflow_pipeline/data")
+CONFIG_DIR = os.path.join(PROJECT_ROOT, "webscraping_airflow_pipeline/config")
 NEWS_SOURCES_CONFIG_FILE = os.path.join(
     CONFIG_DIR, "news_sources.json"
 )  # Percorso al file di config
@@ -118,11 +119,11 @@ def news_feed_pipeline():
     def send_telegram_news(notification_body: str):
         """Invia la notifica su Telegram."""
         # Recupera le credenziali Telegram dalle variabili d'ambiente di Airflow
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        bot_token = Variable.get("TELEGRAM_BOT_TOKEN")
+        chat_id = Variable.get("TELEGRAM_CHAT_ID")
 
         if not all([bot_token, chat_id]):
-            dag_logger.error("Credenziali Telegram BOT_TOKEN o CHAT_ID mancanti. Impossibile inviare la notifica.")
+            dag_logger.error(f"Credenziali Telegram BOT_TOKEN {bot_token} o CHAT_ID {chat_id} mancanti. Impossibile inviare la notifica.")
             raise ValueError("Credenziali Telegram non configurate correttamente.")
 
         # Telegram ha un limite di 4096 caratteri per messaggio HTML.

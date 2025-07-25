@@ -39,54 +39,32 @@ def generate_news_email_content(articles: list) -> str:
     Returns:
         str: Il contenuto HTML completo dell'email.
     """
-    if not articles:
+    
+    logger.info(f"Generazione contenuto email per {len(articles)} articoli.")
+
+    if len(articles) == 0:
         logger.info("Nessun nuovo articolo da includere nell'email.")
-        return "<p>Nessun nuovo articolo interessante trovato oggi.</p>"
-
-    email_body = f"""
-    <html>
-    <head>
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ width: 80%; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9; }}
-            h1 {{ color: #0056b3; }}
-            h2 {{ color: #007bff; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 20px; }}
-            ul {{ list-style-type: none; padding: 0; }}
-            li {{ margin-bottom: 10px; }}
-            a {{ color: #007bff; text-decoration: none; }}
-            a:hover {{ text-decoration: underline; }}
-            .source {{ font-size: 0.9em; color: #666; }}
-            .footer {{ margin-top: 30px; font-size: 0.8em; color: #999; text-align: center; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Il tuo Feed di Notizie Quotidiano - {datetime.now().strftime('%Y-%m-%d')}</h1>
-            <p>Ecco gli articoli più recenti e rilevanti per i tuoi interessi:</p>
-            <ul>
-    """
-
-    for article in articles:
-        title = article.get('title', 'Nessun titolo disponibile')
-        url = article.get('url', '#')
-        source = article.get('source', 'Sconosciuto')
+        email_body = "Ciao, non ho trovato nuovi articoli interessanti oggi."
+    else:
+        email_body = f"""
+        Il tuo Feed di Notizie Quotidiano - {datetime.now().strftime('%Y-%m-%d')}
+        <span class="tg-spoiler>Ecco gli articoli più recenti e rilevanti per i tuoi interessi:</span>
         
-        email_body += f"""
-                <li>
-                    <strong><a href="{url}" target="_blank">{title}</a></strong><br>
-                    <span class="source">Fonte: {source}</span>
-                </li>
         """
 
-    email_body += f"""
-            </ul>
-            <div class="footer">
-                <p>Questo è un feed di notizie automatico generato da Airflow.</p>
-                <p>Data di generazione: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    logger.info("Contenuto email generato con successo.")
+        for article in articles:
+            title = article.get('title', 'Nessun titolo disponibile')
+            url = article.get('url', '#')
+            source = article.get('source', 'Sconosciuto')
+            
+            email_body += f"""
+                        <b><a href="{url}" target="_blank">{title}</a></b><br>
+                        <span class="tg-spoiler>Fonte: {source}</span>
+            """
+
+        email_body += f"""
+                <span class="tg-spoiler>Questo è un feed di notizie automatico generato da Airflow.</span>
+                <span class="tg-spoiler>Data di generazione: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</span>
+                """
+        logger.info("Contenuto email generato con successo.")
     return email_body
