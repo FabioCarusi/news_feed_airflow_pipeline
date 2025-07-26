@@ -36,21 +36,6 @@ def init_db(data_dir: str, db_name: str = 'news_feed.db'):
                 ingestion_timestamp TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
-        # Tabella per i metadati generali dell'esecuzione della pipeline
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pipeline_runs_metadata (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                dag_run_id TEXT NOT NULL,
-                execution_timestamp TEXT NOT NULL,
-                pipeline_name TEXT NOT NULL,
-                status TEXT NOT NULL,
-                items_processed INTEGER,      -- Es. articoli scaricati
-                new_items_stored INTEGER,     -- Es. articoli filtrati e aggiunti al DB
-                error_message TEXT,
-                log_timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
 
         conn.commit()
         dag_logger.info(f"Database '{db_name}' initialized and tables created/verified at {db_path}")
