@@ -1,6 +1,8 @@
 import json
 import os
 import logging
+import sqlite3
+from store_news import get_db_path
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -156,3 +158,26 @@ def generate_telegram_message_chunks(articles: list, chunk_size: int = 10) -> li
         return [header + generate_news_email_content([], is_telegram=True)]
 
     return chunks
+
+def log_pipeline_metadata(data_dir: str, db_name: str, dag_run_id: str, execution_timestamp: str,
+                          pipeline_name: str, status: str, 
+                          items_processed: int = None, new_items_stored: int = None, 
+                          error_message: str = None):
+    """Registra i metadati di alto livello dell'esecuzione della pipeline."""
+    logger.info(f"Logging pipeline metadata for DAG Run ID: {dag_run_id}")
+    db_path = get_db_path(data_dir, db_name)
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO pipeline_runs_metadata (dag_run_id, execution_timestamp, pipeline_name, status, items_processed, new_items_stored, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (dag_run_id, execution_timestamp, pipeline_name, status, items_processed, new_items_stored, error_message))
+        conn.commit()
+        logger.info("Pipeline metadata logged successfully.")
+    except sqlite3.Error as e:
+        logger.error(f"Failed to log pipeline metadata: {e}")
+    finally:
+        if conn:
+            conn.close()
