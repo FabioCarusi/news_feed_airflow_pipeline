@@ -15,9 +15,8 @@ from webscraping_airflow_pipeline.include.store_news import (
 from webscraping_airflow_pipeline.include.utils import (
     load_news_sources_config,
     load_keywords_config,
-    generate_news_email_content,
-)
-from webscraping_airflow_pipeline.include.send_telegram import send_telegram_message
+    generate_telegram_message_chunks)
+from webscraping_airflow_pipeline.include.send_telegram import send_telegram_messages_in_chunks
 
 # --- Configurazione Generale del Progetto ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,6 +48,7 @@ default_args = {
     start_date=datetime.now(),
     tags=["news", "data_pipeline", "scraping", "email"],
     catchup=False,
+    schedule="0 8 * * *",
 )
 def news_feed_pipeline():
 
@@ -117,38 +117,30 @@ def news_feed_pipeline():
         return newly_added_articles
 
     @task
-    def generate_notification_content_task(newly_added_articles: list):
+    def generate_telegram_chunks_task(newly_added_articles: list): # Renamed to reflect its purpose
+        """Generates a list of HTML message chunks for Telegram."""
         dag_logger.info(
-            f"Generazione contenuto notifica per {len(newly_added_articles)} nuovi articoli."
+            f"Generating Telegram chunks for {len(newly_added_articles)} new articles."
         )
-        notification_body = generate_news_email_content(newly_added_articles)
-        return notification_body
+        # Call the new chunking function
+        telegram_message_chunks = generate_telegram_message_chunks(newly_added_articles, chunk_size=10)
+        dag_logger.info(f"Generated {len(telegram_message_chunks)} chunks for Telegram.")
+        return telegram_message_chunks
 
     @task
-    def send_telegram_news(notification_body: str):
-        """Invia la notifica su Telegram."""
-        # Recupera le credenziali Telegram dalle variabili d'ambiente di Airflow
+    def send_telegram_notification_task(telegram_message_chunks: list[str]): # Now accepts a list
+        """Sends the notification to Telegram in chunks."""
         bot_token = Variable.get("TELEGRAM_BOT_TOKEN")
         chat_id = Variable.get("TELEGRAM_CHAT_ID")
 
         if not all([bot_token, chat_id]):
             dag_logger.error(
-                f"Credenziali Telegram BOT_TOKEN {bot_token} o CHAT_ID {chat_id} mancanti. Impossibile inviare la notifica."
+                f"Telegram credentials BOT_TOKEN ({bot_token}) or CHAT_ID ({chat_id}) missing. Cannot send notification."
             )
-            raise ValueError("Credenziali Telegram non configurate correttamente.")
+            raise ValueError("Telegram credentials not configured correctly.")
 
-        # Telegram ha un limite di 4096 caratteri per messaggio HTML.
-        # Se il tuo body è più lungo, dovrai dividerlo o inviarlo come file.
-        # Per ora, inviamo solo i primi 4000 caratteri se è troppo lungo.
-        if len(notification_body) > 4096:
-            dag_logger.warning(
-                "Contenuto del messaggio Telegram troppo lungo. Sarà troncato."
-            )
-            notification_body = notification_body[:4000] + "..."
-
-        send_telegram_message(
-            bot_token=bot_token, chat_id=chat_id, message=notification_body
-        )
+        # Call the function that sends messages in chunks
+        send_telegram_messages_in_chunks(bot_token=bot_token, chat_id=chat_id, messages=telegram_message_chunks)
 
     # --- Definizione delle Dipendenze ---
     _sources_to_fetch = load_news_sources_config(NEWS_SOURCES_CONFIG_FILE)
@@ -161,19 +153,23 @@ def news_feed_pipeline():
     _all_fetched_articles = fetch_all_headlines.partial().expand(
         source_config=_sources_to_fetch
     )
+    
+    _db_path >> _all_fetched_articles
 
-    # 3. Filtra e memorizza. Dipende dal fetch (che ha finito di aggregare tutti i risultati)
-    #    e dall'inizializzazione del DB e dal caricamento delle keyword.
+    # 3. Filter and store news. Depends on fetch completion, DB init, and keyword loading.
     _filtered_and_stored_news = filter_and_store_all_news(
         _all_fetched_articles, _db_path, _keywords_to_use
     )
 
-    _notification_body = generate_notification_content_task(_filtered_and_stored_news)
-    _send_news_to_telegram = send_telegram_news(_notification_body)
+    [_db_path, _all_fetched_articles] >> _filtered_and_stored_news
 
-    _db_path >> _all_fetched_articles >> _filtered_and_stored_news
-    _filtered_and_stored_news >> _notification_body >> _send_news_to_telegram
+    # 4. Generate Telegram chunks
+    _telegram_message_chunks = generate_telegram_chunks_task(_filtered_and_stored_news)
+    
+    # 5. Send Telegram chunks
+    # This task depends on the chunk generation.
+    _telegram_message_chunks >> send_telegram_notification_task(_telegram_message_chunks)
 
 
-# Istanzia il DAG
+# Instantiate the DAG
 news_feed_pipeline()

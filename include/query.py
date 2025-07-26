@@ -13,10 +13,10 @@ try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        truncate = cursor.execute("""
-                       DELETE FROM articles
-                       """)
-        conn.commit()
+        #truncate = cursor.execute("""
+        #               DELETE FROM articles
+        #               """)
+        #conn.commit()
         
         query = cursor.execute("""
                        SELECT * FROM articles
