@@ -161,7 +161,7 @@ def news_feed_pipeline():
         _all_fetched_articles, _db_path, _keywords_to_use
     )
 
-    [_db_path, _all_fetched_articles] >> _filtered_and_stored_news
+    [_all_fetched_articles] >> _filtered_and_stored_news
 
     # 4. Generate Telegram chunks
     _telegram_message_chunks = generate_telegram_chunks_task(_filtered_and_stored_news)
