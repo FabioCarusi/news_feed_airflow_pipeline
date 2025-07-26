@@ -1,7 +1,9 @@
 import telegram
 import asyncio
 import logging
-import time 
+import nest_asyncio
+
+nest_asyncio.apply()
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +24,17 @@ async def _send_single_telegram_message(telegram_client, chat_id: str, message_t
         logger.error(f"Generic error while sending Telegram message: {e}")
         raise
 
+def run_async(func):
+    def wrapper(*args, **kwargs):
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(func(*args, **kwargs))
+    return wrapper
 
-def send_telegram_messages_in_chunks(bot_token: str, chat_id: str, messages: list[str]):
+@run_async
+async def send_telegram_messages_in_chunks(bot_token: str, chat_id: str, messages: list[str]):
     """
     Sends a list of HTML messages to a Telegram chat via the bot.
     Adds a small delay between messages to avoid Telegram's flood limit.
@@ -50,10 +61,12 @@ def send_telegram_messages_in_chunks(bot_token: str, chat_id: str, messages: lis
         if len(message_text) > 4096:
             logger.warning("Telegram message content too long. It will be truncated.")
             message_text = message_text[:4090] + "..." # Leave space for the 3 dots
-
-        asyncio.run(_send_single_telegram_message(telegram_client, chat_id, message_text))
+        
+        # Usa 'await' per chiamare la coroutine, non asyncio.run()
+        await _send_single_telegram_message(telegram_client, chat_id, message_text)
         
         if i < len(messages) - 1: # Don't delay after the last message
-            time.sleep(MESSAGE_SEND_DELAY_SECONDS)
+            # Usa asyncio.sleep per una pausa non bloccante
+            await asyncio.sleep(MESSAGE_SEND_DELAY_SECONDS)
 
     logger.info("All Telegram messages sent.")
