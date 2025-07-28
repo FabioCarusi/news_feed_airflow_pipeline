@@ -1,44 +1,46 @@
 [
     {
-        "name": "Python.org News",
-        "url": "https://www.python.org/blogs/",
-        "title_selector": "h3.event-title",
-        "link_selector": "a"
+        "name":"Datafloq",
+        "url": "https://datafloq.com/feed"
+    },
+    {
+        "name": "Smart Data Collective",
+        "url": "https://www.smartdatacollective.com/feed/"
+    },
+    {
+        "name": "dataengineer.io",
+        "url": "https://blog.dataengineer.io/feed"
+    },
+    {
+        "name": "AWS Data",
+        "url": "https://aws.amazon.com/blogs/big-data/feed/"
+    },
+    {
+        "name": "Microsoft Azure Blog",
+        "url": "https://azure.microsoft.com/en-us/blog/feed"
     },
     {
         "name": "Microsoft Azure Blog Fabric",
-        "url": "https://azure.microsoft.com/en-us/blog/product/azure-service-fabric/",
-        "title_selector": "h3.msx-card__title > a",
-        "link_selector": "a.msx-card.msx-card__title "
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-service-fabric/feed/"
     },
     {
         "name": "Microsoft Azure Blog Databricks",
-        "url": "https://azure.microsoft.com/en-us/blog/product/azure-databricks/",
-        "title_selector": "h3.msx-card__title > a",
-        "link_selector": "a.msx-card.msx-card__title "
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-databricks/feed"
     },
     {
         "name": "Microsoft Azure Blog Data Factory",
-        "url": "https://azure.microsoft.com/en-us/blog/product/azure-data-factory/",
-        "title_selector": "h3.msx-card__title > a",
-        "link_selector": "a.msx-card.msx-card__title "
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-data-factory/feed"
     },
     {
         "name": "Microsoft Azure Blog Data Lake Storage",
-        "url": "https://azure.microsoft.com/en-us/blog/product/azure-data-lake-storage/",
-        "title_selector": "h3.msx-card__title > a",
-        "link_selector": "a.msx-card.msx-card__title "
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-data-lake-storage/feed"
     },
     {
         "name": "Hacker News",
-        "url": "https://news.ycombinator.com/",
-        "title_selector": "td.title > a",
-        "link_selector": "td.title > a"
+        "url": "https://news.ycombinator.com/rss"
     },
     {
         "name": "DBT labs blog",
-        "url": "https://www.getdbt.com/blog",
-        "title_selector": "h3.heading-4 > a",
-        "link_selector": "h3.heading-4 > a"
+        "url": "https://www.getdbt.com/blog/feed.xml"
     } 
 ] 
