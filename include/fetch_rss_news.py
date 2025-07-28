@@ -4,7 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def fetch_rss_articles(url: str) -> list[dict]:
+def fetch_rss_articles(url: str, source: str) -> list[dict]:
 
     articles_data = []
     try:
@@ -17,7 +17,12 @@ def fetch_rss_articles(url: str) -> list[dict]:
                 entry_url = entry.get("link", "no url")
                 entry_summary = entry.get("summary", "no summary")
                 articles_data.append(
-                    {"title": entry_title, "url": entry_url, "summary": entry_summary}
+                    {
+                        "title": entry_title,
+                        "url": entry_url,
+                        "summary": entry_summary,
+                        "source": source,
+                    }
                 )
 
             logger.info(
