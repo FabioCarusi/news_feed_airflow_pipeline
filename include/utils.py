@@ -2,7 +2,7 @@ import json
 import os
 import logging
 import sqlite3
-from store_news import get_db_path
+from webscraping_airflow_pipeline.include.store_news import get_db_path
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
