@@ -17,6 +17,8 @@ from webscraping_airflow_pipeline.include.utils import (
     load_keywords_config,
     generate_telegram_message_chunks)
 from webscraping_airflow_pipeline.include.send_telegram import send_telegram_messages_in_chunks
+from webscraping_airflow_pipeline.include.fetch_rss_news import fetch_rss_articles
+
 
 # --- Configurazione Generale del Progetto ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -66,21 +68,22 @@ def news_feed_pipeline():
         """
         source_name = source_config["name"]
         source_url = source_config["url"]
-        title_selector = source_config["title_selector"]
-        link_selector = source_config["link_selector"]
+        #title_selector = source_config["title_selector"]
+        #link_selector = source_config["link_selector"]
 
         dag_logger.info(f"Fetching headlines from: {source_name} ({source_url})")
+        
+        articles = fetch_rss_articles(source_url, source_name)
 
-        articles = fetch_headlines_from_source(
-            source_url, title_selector, link_selector
-        )
+        #articles = fetch_headlines_from_source(
+        #    source_url, title_selector, link_selector
+        #)
 
         if not articles:
             dag_logger.warning(f"No articles found for {source_name}.")
             return []
 
         for article in articles:
-            article["source"] = source_name
             article["fetch_timestamp"] = datetime.now().isoformat()
 
         dag_logger.info(f"Fetched {len(articles)} articles from {source_name}.")
