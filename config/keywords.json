@@ -6,17 +6,17 @@
     "aws",
     "azure",
     "gcp",
-    "ai",
-    "ml",
     "Terraform",
-    "machine learning",
-    "artificial intelligence",
-    "ai",
     "big data",
     "cloud",
     "databricks",
     "dbt",
     "fabric",
     "data lake",
-    "dbt"
+    "dbt",
+    "datawherahouse",
+    "data warehouse",
+    "lakehouse",
+    "snowflake",
+    "data catalog"
 ]
