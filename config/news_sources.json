@@ -8,8 +8,12 @@
         "url": "https://www.smartdatacollective.com/feed/"
     },
     {
-        "name": "dataengineer.io",
-        "url": "https://blog.dataengineer.io/feed"
+        "name": "Medium",
+        "url": "https://medium.com/feed/blog"
+    },
+    {
+        "name": "Towards Data Science",
+        "url": "https://towardsdatascience.com/feed/"
     },
     {
         "name": "AWS Data",
