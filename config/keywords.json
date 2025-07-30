@@ -18,5 +18,10 @@
     "data warehouse",
     "lakehouse",
     "snowflake",
-    "data catalog"
+    "data catalog",
+    "bigquery",
+    "apache",
+    "python",
+    "spark",
+    "spark streaming"
 ]
