@@ -140,7 +140,7 @@ def news_feed_pipeline():
     @task
     def send_telegram_notification_task(
         telegram_message_chunks: list[str],
-    ):  # Now accepts a list
+    ):
         """Sends the notification to Telegram in chunks."""
         bot_token = Variable.get("TELEGRAM_BOT_TOKEN")
         chat_id = Variable.get("TELEGRAM_CHAT_ID")
