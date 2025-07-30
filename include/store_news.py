@@ -67,6 +67,7 @@ def store_filtered_news(db_path: str, articles: list[dict], keywords: list[str])
             title = article.get('title', '').strip()
             url = article.get('url', '').strip()
             source = article.get('source', 'N/A')
+            summary = article.get('summary', '').strip()
             fetch_timestamp = article.get('fetch_timestamp', datetime.now().isoformat())
 
             if not url or not title:
@@ -83,6 +84,11 @@ def store_filtered_news(db_path: str, articles: list[dict], keywords: list[str])
                     matched_keywords.append(keyword)
             
             # Se nessuna keyword matcha, skippiamo l'articolo
+            if not matched_keywords:
+                for keyword in lower_keywords:
+                    if keyword in summary.lower():
+                        matched_keywords.append(keyword)
+            
             if not matched_keywords:
                 dag_logger.debug(f"Article '{title}' does not match any keywords. Skipping.")
                 continue
