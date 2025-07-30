@@ -1,9 +1,8 @@
-# include/store_news.py
 import sqlite3
 import os
 import logging
 from datetime import datetime
-import json # Per serializzare le liste di keywords/tag
+import json 
 
 # dag_logger principale del DAG
 dag_logger = logging.getLogger(__name__)
