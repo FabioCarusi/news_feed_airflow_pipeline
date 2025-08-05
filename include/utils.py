@@ -1,161 +1,230 @@
 import json
 import os
 import logging
-import sqlite3
-from webscraping_airflow_pipeline.include.store_news import get_db_path
 from datetime import datetime
+from airflow.utils.email import send_email
+from airflow.models.xcom import XCom
+from airflow.models import Variable
+
 
 logger = logging.getLogger(__name__)
 
+class ConfigLoader:
+    """Handles loading of configuration files."""
 
-def load_news_sources_config(source_config_file: list[dict]):
-    """Carica la configurazione delle fonti di notizie dal file JSON."""
-    if not os.path.exists(source_config_file):
-        raise FileNotFoundError(f"Config file not found: {source_config_file}")
+    def load_news_sources(self, source_config_file: str) -> list[dict]:
+        """Loads the news sources configuration from the JSON file."""
+        if not os.path.exists(source_config_file):
+            raise FileNotFoundError(f"Config file not found: {source_config_file}")
 
-    with open(source_config_file, "r", encoding="utf-8") as f:
-        sources = json.load(f)
-    logger.info(f"Loaded {len(sources)} news sources from config file.")
-    return sources
+        with open(source_config_file, "r", encoding="utf-8") as f:
+            sources = json.load(f)
+        logger.info(f"Loaded {len(sources)} news sources from config file.")
+        return sources
 
+    def load_keywords(self, keyword_config_file: str) -> list[str]:
+        """Loads the keywords configuration from the JSON file."""
+        if not os.path.exists(keyword_config_file):
+            raise FileNotFoundError(f"Config file not found: {keyword_config_file}")
 
-def load_keywords_config(keyword_config_file: list[str]):
-    """Carica la configurazione delle keyword dal file JSON."""
-    if not os.path.exists(keyword_config_file):
-        raise FileNotFoundError(f"Config file not found: {keyword_config_file}")
+        with open(keyword_config_file, "r", encoding="utf-8") as f:
+            keywords = json.load(f)
+        logger.info(f"Loaded {len(keywords)} keywords from config file.")
+        return keywords
 
-    with open(keyword_config_file, "r", encoding="utf-8") as f:
-        keywords = json.load(f)
-    logger.info(f"Loaded {len(keywords)} keywords from config file.")
-    return keywords
+class NotificationFormatter:
+    """Handles the formatting of notification content for different channels."""
 
-
-def generate_news_email_content(articles: list, is_telegram: bool = False) -> str:
-    """
-    Genera il contenuto HTML dell'email/notifica con le notizie filtrate.
-
-    Args:
-        articles (list): Una lista di dizionari, dove ogni dizionario rappresenta un articolo.
-        is_telegram (bool): Se True, ottimizza il formato per Telegram (più compatto e compatibile).
-
-    Returns:
-        str: Il contenuto HTML completo (o parte di esso).
-    """
-    if not articles:
-        if is_telegram:
-            return "Nessun nuovo articolo interessante trovato oggi."
-        else:
-            return "<p>Nessun nuovo articolo interessante trovato oggi.</p>"
-
-    # Struttura base del corpo dell'email/notifica
-    if not is_telegram:
-        # Formato più verboso per email complete (standard HTML)
-        html_template_start = f"""
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ width: 80%; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9; }}
-                h1 {{ color: #0056b3; }}
-                h2 {{ color: #007bff; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 20px; }}
-                ul {{ list-style-type: none; padding: 0; }}
-                li {{ margin-bottom: 10px; }}
-                a {{ color: #007bff; text-decoration: none; }}
-                a:hover {{ text-decoration: underline; }}
-                .source {{ font-size: 0.9em; color: #666; }}
-                .footer {{ margin-top: 30px; font-size: 0.8em; color: #999; text-align: center; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Il tuo Feed di Notizie Quotidiano - {datetime.now().strftime('%Y-%m-%d')}</h1>
-                <p>Ecco gli articoli più recenti e rilevanti per i tuoi interessi:</p>
-                <ul>
+    def _generate_single_article_html(self, article: dict, is_telegram: bool) -> str:
         """
-        html_template_end = f"""
-                </ul>
-                <div class="footer">
-                    <p>Questo è un feed di notizie automatico generato da Airflow.</p>
-                    <p>Data di generazione: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-    else:
-        # Formato COMPATIBILE CON TELEGRAM: solo i tag supportati
-        html_template_start = ""
-        html_template_end = ""
+        Generates an HTML string for a single article, formatted for either
+        email or Telegram.
 
-    articles_html = ""
-    for article in articles:
-        title = article.get("title", "Nessun titolo disponibile")
+        Args:
+            article (dict): A dictionary representing an article.
+            is_telegram (bool): If True, optimizes the format for Telegram.
+
+        Returns:
+            str: The HTML string for the article.
+        """
+        title = article.get("title", "No title available")
         url = article.get("url", "#")
-        source = article.get("source", "Sconosciuto")
+        source = article.get("source", "Unknown")
 
-        # Formattazione specifica per Telegram con i tag supportati
+        # Telegram-specific formatting with supported tags
         if is_telegram:
-            # Usiamo <b> per grassetto, <i> per corsivo (fonte), e <a href> per i link.
-            articles_html += (
+            # We use <b> for bold, <i> for italics (source), and <a href> for links.
+            return (
                 f'• <b><a href="{url}">{title}</a></b>'
-                f"  <i>Fonte: {source} </i>"
+                f"  <i>Source: {source} </i>"
                 f"\n"
             )
         else:
-            # Formattazione originale per email (con ul, li, strong, span)
-            articles_html += f"""
+            # Original formatting for email (with ul, li, strong, span)
+            return f"""
                 <li>
                     <strong><a href="{url}" target="_blank">{title}</a></strong><br>
-                    <span class="source">Fonte: {source} </span>
+                    <span class="source">Source: {source} </span>
                 </li>
             """
 
-    if not is_telegram:
+    def generate_full_html_content(self, articles: list) -> str:
+        """Generates the full HTML content for an email notification."""
+        if not articles:
+            return "<p>No new interesting articles found today.</p>"
+
+        # Basic structure of the email/notification body
+        html_template_start = f"""
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ width: 80%; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9; }}
+                    h1 {{ color: #0056b3; }}
+                    h2 {{ color: #007bff; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 20px; }}
+                    ul {{ list-style-type: none; padding: 0; }}
+                    li {{ margin-bottom: 10px; }}
+                    a {{ color: #007bff; text-decoration: none; }}
+                    a:hover {{ text-decoration: underline; }}
+                    .source {{ font-size: 0.9em; color: #666; }}
+                    .footer {{ margin-top: 30px; font-size: 0.8em; color: #999; text-align: center; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Your Daily News Feed - {datetime.now().strftime('%Y-%m-%d')}</h1>
+                    <p>Here are the latest and most relevant articles for your interests:</p>
+                    <ul>
+        """
+        html_template_end = f"""
+                    </ul>
+                    <div class="footer">
+                        <p>This is an automatic news feed generated by Airflow.</p>
+                        <p>Generation date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """
+
+        articles_html = "".join(
+            [self._generate_single_article_html(article, is_telegram=False) for article in articles]
+        )
+
         return html_template_start + articles_html + html_template_end
-    else:
-        return articles_html
 
+    def generate_telegram_message_chunks(self, articles: list, chunk_size: int = 10) -> list[str]:
+        """
+        Generates a list of HTML strings, where each string contains a block of articles
+        optimized for Telegram.
 
-def generate_telegram_message_chunks(articles: list, chunk_size: int = 10) -> list[str]:
-    """
-    Genera una lista di stringhe HTML, dove ogni stringa contiene un blocco di articoli
-    ottimizzato per Telegram.
+        Args:
+            articles (list): List of article dictionaries.
+            chunk_size (int): Maximum number of articles per message.
 
-    Args:
-        articles (list): Lista di dizionari articolo.
-        chunk_size (int): Numero massimo di articoli per ogni messaggio.
+        Returns:
+            list[str]: A list of strings, where each string is a Telegram message.
+        """
+        chunks = []
 
-    Returns:
-        list[str]: Una lista di stringhe, ogni stringa è un messaggio Telegram.
-    """
-    chunks = []
+        # Header for the first message, compatible with Telegram HTML
+        header = f"<b>Your Daily News Feed - {datetime.now().strftime('%Y-%m-%d')}</b>\n\n"
+        header += "Here are the latest and most relevant articles for your interests:\n\n"
 
-    # Intestazione per il primo messaggio, compatibile con Telegram HTML
-    header = f"<b>Il tuo Feed di Notizie Quotidiano - {datetime.now().strftime('%Y-%m-%d')}</b>\n\n"
-    header += "Ecco gli articoli più recenti e rilevanti per i tuoi interessi:\n\n"
+        if not articles:
+            return [header + "No new interesting articles found today."]
 
-    if not articles:
-        return [header + generate_news_email_content([], is_telegram=True)]
-
-    current_chunk_articles = []
-
-    for i, article in enumerate(articles):
-        current_chunk_articles.append(article)
-
-        if (i + 1) % chunk_size == 0 or (i + 1) == len(articles):
-            chunk_body = generate_news_email_content(
-                current_chunk_articles, is_telegram=True
+        for i in range(0, len(articles), chunk_size):
+            chunk_of_articles = articles[i:i + chunk_size]
+            chunk_body = "".join(
+                [self._generate_single_article_html(article, is_telegram=True) for article in chunk_of_articles]
             )
 
-            if not chunks:
-                chunks.append(header + chunk_body)
-            else:
-                chunks.append(chunk_body)
+            message = chunk_body
+            if i == 0:  # Add header only to the first message
+                message = header + message
 
-            current_chunk_articles = []
+            chunks.append(message)
 
-    if not chunks:
-        return [header + generate_news_email_content([], is_telegram=True)]
+        return chunks
 
-    return chunks
+class AirflowCallbackHandler:
+    """Handles Airflow-specific callbacks, like task failure notifications."""
 
+    def __init__(self, formatter: NotificationFormatter):
+        self._formatter = formatter
+
+    def send_dag_success_email(self, context):
+        """
+        Callback to send an email notification on DAG success.
+        The email contains a summary of the articles found.
+        """
+        try:
+            recipient = Variable.get("ALERT_EMAIL_RECIPIENT")
+        except KeyError:
+            logger.error("Airflow Variable 'ALERT_EMAIL_RECIPIENT' not found. Cannot send success email.")
+            return
+
+        dag_run = context['dag_run']
+        dag_id = dag_run.dag_id
+        
+        # Pull the list of new articles from the final storage task's XCom
+        newly_added_articles = XCom.get_one(
+            dag_id=dag_id,
+            task_id='filter_and_store_all_news',
+            run_id=dag_run.run_id,
+            include_prior_dates=False
+        )
+
+        subject = f"[Airflow] SUCCESS: DAG {dag_id} completed"
+        
+        if newly_added_articles:
+            logger.info(f"Found {len(newly_added_articles)} new articles to include in success email.")
+            html_content = self._formatter.generate_full_html_content(newly_added_articles)
+        else:
+            logger.info("No new articles found in this run. Sending a simple success notification.")
+            html_content = f"""
+            <h3>DAG Run Successful</h3>
+            <p><b>DAG:</b> {dag_id}</p>
+            <p>The DAG run completed successfully, but no new articles matching your keywords were found.</p>
+            <p><b>Execution Date:</b> {dag_run.execution_date}</p>
+            """
+
+        self._send_email(recipient, subject, html_content)
+
+    def send_task_failure_email(self, context: dict):
+        """
+        Callback to send an email notification on task failure.
+        The email contains the task ID, DAG ID, exception, and a link to the logs.
+        """
+        try:
+            # Retrieve the recipient's email from Airflow Variables
+            recipient = Variable.get("ALERT_EMAIL_RECIPIENT")
+        except KeyError:
+            logger.error("Airflow Variable 'ALERT_EMAIL_RECIPIENT' not found. Cannot send notification email.")
+            return
+
+        task_instance = context['task_instance']
+        task_id = task_instance.task_id
+        dag_id = task_instance.dag_id
+        log_url = task_instance.log_url
+        exception = context.get('exception')
+
+        subject = f"[Airflow] Task Failure: {dag_id}.{task_id}"
+        html_content = f"""
+        <h3>Task Failure Details</h3>
+        <p><b>DAG:</b> {dag_id}</p>
+        <p><b>Task:</b> {task_id}</p>
+        <p><b>Log URL:</b> <a href="{log_url}">View Logs</a></p>
+        <p><b>Exception:</b></p>
+        <pre>{exception}</pre>
+        """
+
+        self._send_email(recipient, subject, html_content)
+
+    def _send_email(self, recipient: str, subject: str, html_content: str):
+        try:
+            send_email(to=[recipient], subject=subject, html_content=html_content)
+            logger.info(f"Email sent successfully to {recipient}")
+        except Exception as e:
+            logger.error(f"Error sending notification email: {e}")

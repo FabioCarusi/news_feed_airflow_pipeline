@@ -3,35 +3,30 @@ from airflow.sdk import Variable
 import os
 import logging
 from datetime import datetime, timedelta
-import json
 
-# Importa le funzioni dai tuoi file nella cartella 'include'
-from webscraping_airflow_pipeline.include.fetch_news import fetch_headlines_from_source
-from webscraping_airflow_pipeline.include.store_news import (
-    init_db,
-    store_filtered_news,
-    get_db_path,
-)
+# Import functions from the 'include' folder
+from webscraping_airflow_pipeline.include.store_news import DBInit, StoredNews
 from webscraping_airflow_pipeline.include.utils import (
-    load_news_sources_config,
-    load_keywords_config,
-    generate_telegram_message_chunks,
+    ConfigLoader,
+    NotificationFormatter,
+    AirflowCallbackHandler,
 )
-from webscraping_airflow_pipeline.include.send_telegram import (
-    send_telegram_messages_in_chunks,
-)
+from webscraping_airflow_pipeline.include.send_telegram import send_telegram_messages_in_chunks
 from webscraping_airflow_pipeline.include.fetch_rss_news import fetch_rss_articles
 
 
-# --- Configurazione Generale del Progetto ---
+# --- General Project Configuration ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DATA_DIR = os.path.join(PROJECT_ROOT, "webscraping_airflow_pipeline/data")
 CONFIG_DIR = os.path.join(PROJECT_ROOT, "webscraping_airflow_pipeline/config")
 NEWS_SOURCES_CONFIG_FILE = os.path.join(CONFIG_DIR, "news_sources.json")
 KEYWORDS_CONFIG_FILE = os.path.join(CONFIG_DIR, "keywords.json")
+BOT_TOKEN = Variable.get("TELEGRAM_BOT_TOKEN")
+CHAT_ID = Variable.get("TELEGRAM_CHAT_ID")
 
-# Logger principale del DAG
+
+# Main logger 
 dag_logger = logging.getLogger(__name__)
 
 default_args = {
@@ -39,10 +34,16 @@ default_args = {
     "depends_on_past": False,
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 1,
+    "retries": 3,
     "retry_delay": timedelta(minutes=5),
 }
 
+# Instantiate helper classes
+config_loader = ConfigLoader()
+formatter = NotificationFormatter()
+callbacks = AirflowCallbackHandler(formatter=formatter)
+db = DBInit() # This can be removed if DBInit only has static methods
+news = StoredNews()
 
 @dag(
     dag_id="news_feed_pipeline",
@@ -52,33 +53,29 @@ default_args = {
     tags=["news", "data_pipeline", "scraping", "email"],
     catchup=False,
     schedule="0 8 * * *",
+    on_success_callback=callbacks.send_dag_success_email,
+    on_failure_callback=callbacks.send_task_failure_email,
 )
 def news_feed_pipeline():
 
     @task
     def initialize_db_task():
-        """Inizializza il database per il feed di notizie."""
+        """Initializes the database for the news feed."""
         db_name = "news_feed.db"
-        init_db(DATA_DIR, db_name)
-        return get_db_path(DATA_DIR, db_name)
+        db.init_db(DATA_DIR, db_name)
+        return db.get_db_path(DATA_DIR, db_name)
 
     @task
     def fetch_all_headlines(source_config: dict):
         """
-        Task mappato per il fetching delle notizie da una singola fonte.
+        Mapped task for fetching news from a single source.
         """
         source_name = source_config["name"]
         source_url = source_config["url"]
-        # title_selector = source_config["title_selector"]
-        # link_selector = source_config["link_selector"]
 
         dag_logger.info(f"Fetching headlines from: {source_name} ({source_url})")
 
         articles = fetch_rss_articles(source_url, source_name)
-
-        # articles = fetch_headlines_from_source(
-        #    source_url, title_selector, link_selector
-        # )
 
         if not articles:
             dag_logger.warning(f"No articles found for {source_name}.")
@@ -95,7 +92,7 @@ def news_feed_pipeline():
         all_fetched_articles_list: list, db_path: str, keywords: list
     ):
         """
-        Filtra le notizie per keyword e le memorizza nel DB.
+        Filters news by keyword and stores them in the DB.
         """
 
         flattened_articles = [
@@ -110,7 +107,7 @@ def news_feed_pipeline():
             f"Total fetched articles across all sources: {len(flattened_articles)}"
         )
 
-        new_articles_count, newly_added_articles = store_filtered_news(
+        new_articles_count, newly_added_articles = news.store_filtered_news(
             db_path, flattened_articles, keywords
         )
 
@@ -129,7 +126,7 @@ def news_feed_pipeline():
             f"Generating Telegram chunks for {len(newly_added_articles)} new articles."
         )
         # Call the new chunking function
-        telegram_message_chunks = generate_telegram_message_chunks(
+        telegram_message_chunks = formatter.generate_telegram_message_chunks(
             newly_added_articles, chunk_size=5
         )
         dag_logger.info(
@@ -139,31 +136,29 @@ def news_feed_pipeline():
 
     @task
     def send_telegram_notification_task(
-        telegram_message_chunks: list[str],
+        telegram_message_chunks: list[str], bot_token: str, chat_id: str
     ):
-        """Sends the notification to Telegram in chunks."""
-        bot_token = Variable.get("TELEGRAM_BOT_TOKEN")
-        chat_id = Variable.get("TELEGRAM_CHAT_ID")
-
+        """Sends notifications to Telegram in chunks."""
+        
         if not all([bot_token, chat_id]):
             dag_logger.error(
                 f"Telegram credentials BOT_TOKEN ({bot_token}) or CHAT_ID ({chat_id}) missing. Cannot send notification."
             )
             raise ValueError("Telegram credentials not configured correctly.")
 
-        # Call the function that sends messages in chunks
+        # Call the function to send messages in chunks
         send_telegram_messages_in_chunks(
             bot_token=bot_token, chat_id=chat_id, messages=telegram_message_chunks
         )
 
-    # --- Definizione delle Dipendenze ---
-    _sources_to_fetch = load_news_sources_config(NEWS_SOURCES_CONFIG_FILE)
-    _keywords_to_use = load_keywords_config(KEYWORDS_CONFIG_FILE)
+    # --- Defining Dependencies ---
+    _sources_to_fetch = config_loader.load_news_sources(NEWS_SOURCES_CONFIG_FILE)
+    _keywords_to_use = config_loader.load_keywords(KEYWORDS_CONFIG_FILE)
 
-    # 1. Inizializzazione DB (indipendente dagli altri caricamenti)
+    # 1. DB Initialization (independent of other loads)
     _db_path = initialize_db_task()
 
-    # 2. Fetch delle notizie. Dipende dalle fonti caricate.
+    # 2. Fetch news. Depends on the loaded sources.
     _all_fetched_articles = fetch_all_headlines.partial().expand(
         source_config=_sources_to_fetch
     )
@@ -183,7 +178,7 @@ def news_feed_pipeline():
     # 5. Send Telegram chunks
     # This task depends on the chunk generation.
     _telegram_message_chunks >> send_telegram_notification_task(
-        _telegram_message_chunks
+        _telegram_message_chunks, BOT_TOKEN, CHAT_ID
     )
 
 
