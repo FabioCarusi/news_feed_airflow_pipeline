@@ -1,153 +1,120 @@
 import sqlite3
 import os
 import logging
-from datetime import datetime
 import json
+from contextlib import contextmanager
 
-# dag_logger principale del DAG
 dag_logger = logging.getLogger(__name__)
 
 
-class DBInit:
+def filter_articles_by_keywords(
+    articles: list[dict], keywords: list[str]
+) -> list[dict]:
+    """
+    Filters a list of articles based on a list of keywords.
 
-    def get_db_path(self, data_dir: str, db_name: str) -> str:
-        """Ritorna il percorso completo al database."""
-        return os.path.join(data_dir, db_name)
+    This is pure business logic, decoupled from the database.
 
-    def init_db(self, data_dir: str, db_name: str = "news_feed.db"):
-        """Inizializza il database e crea le tabelle se non esistono."""
+    Args:
+        articles (list[dict]): The list of articles to filter.
+        keywords (list[str]): The keywords to match against.
 
-        # Assicura che la directory dei dati esista. sqlite3 non la crea automaticamente.
-        os.makedirs(data_dir, exist_ok=True)
+    Returns:
+        list[dict]: A new list containing only the articles that matched,
+                    with an added 'matched_keywords' key.
+    """
+    dag_logger.info(f"Filtering {len(articles)} articles with {len(keywords)} keywords.")
+    filtered_articles = []
+    lower_keywords = [k.lower() for k in keywords]
 
-        db_path = self.get_db_path(data_dir, db_name)
-        conn = None
+    for article in articles:
+        title = article.get("title", "").strip()
+        summary = article.get("summary", "").strip()
+
+        if not article.get("url") or not title:
+            dag_logger.warning(f"Skipping article with missing URL or Title: {article}")
+            continue
+
+        matched_keywords = {
+            kw for kw in lower_keywords if kw in title.lower() or kw in summary.lower()
+        }
+
+        if matched_keywords:
+            article["matched_keywords"] = list(matched_keywords)
+            filtered_articles.append(article)
+        else:
+            dag_logger.debug(f"Article '{title}' did not match any keywords. Skipping.")
+
+    dag_logger.info(f"Found {len(filtered_articles)} articles matching keywords.")
+    return filtered_articles
+
+
+class ArticleRepository:
+    """
+    Handles all database operations for articles.
+    This class is the single source of truth for database interactions.
+    """
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    @contextmanager
+    def _get_connection(self):
+        """Provides a transactional database connection."""
+        conn = sqlite3.connect(self.db_path)
         try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
+            yield conn
+        except sqlite3.Error as e:
+            dag_logger.error(f"Database error: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
-            # Tabella per le notizie
-            cursor.execute(
-                """
+    def initialize_db(self):
+        """Initializes the database and creates the articles table if it doesn't exist."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS articles (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    url TEXT UNIQUE NOT NULL, -- URL unico per prevenire duplicati
+                    url TEXT UNIQUE NOT NULL,
                     title TEXT NOT NULL,
                     source TEXT,
                     fetch_timestamp TEXT NOT NULL,
-                    match_keywords TEXT, -- Keywords che hanno matchato l'articolo (JSON string)
+                    match_keywords TEXT,
                     ingestion_timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
-
+            """)
             conn.commit()
-            dag_logger.info(
-                f"Database '{db_name}' initialized and tables created/verified at {db_path}"
-            )
-        except sqlite3.Error as e:
-            dag_logger.error(f"Error initializing database at {db_path}: {e}")
-            raise  # Rilancia l'eccezione per fermare il task di Airflow
-        finally:
-            if conn:
-                conn.close()
+        dag_logger.info(f"Database initialized and table 'articles' verified at {self.db_path}")
 
-
-class StoredNews:
-
-    def store_filtered_news(
-        self, db_path: str, articles: list[dict], keywords: list[str]
-    ) -> tuple[int, list[dict]]:
+    def add_articles(self, articles: list[dict]) -> list[dict]:
         """
-        Filtra le notizie per keyword, le salva nel DB (evitando duplicati)
-        e ritorna il conteggio delle nuove notizie e la lista di quelle appena aggiunte.
+        Adds a list of articles to the database, skipping duplicates.
+
+        Returns:
+            list[dict]: A list of articles that were newly inserted.
         """
-        dag_logger.info(
-            f"Starting filter and store process for {len(articles)} total articles fetched."
-        )
-        conn = None
-        new_articles_count = 0
-        newly_added_articles = []  # Lista per gli articoli effettivamente inseriti
-
-        # Prepara le keywords per il matching case-insensitive e per trovare parole complete
-        lower_keywords = [k.lower() for k in keywords]
-
-        try:
-            conn = sqlite3.connect(db_path)
+        newly_added_articles = []
+        with self._get_connection() as conn:
             cursor = conn.cursor()
-
             for article in articles:
-                title = article.get("title", "").strip()
-                url = article.get("url", "").strip()
-                source = article.get("source", "N/A")
-                summary = article.get("summary", "").strip()
-                fetch_timestamp = article.get(
-                    "fetch_timestamp", datetime.now().isoformat()
-                )
-
-                if not url or not title:
-                    dag_logger.warning(
-                        f"Skipping article due to missing URL or Title: {article}"
-                    )
-                    continue
-
-                # Filtra per keyword: cerca match nel titolo
-                matched_keywords = []
-                title_lower = title.lower()
-
-                for keyword in lower_keywords:
-                    # Controlla se la keyword (o una parte di essa se è una frase) è nel titolo
-                    if keyword in title_lower:
-                        matched_keywords.append(keyword)
-
-                # Se nessuna keyword matcha, skippiamo l'articolo
-                if not matched_keywords:
-                    for keyword in lower_keywords:
-                        if keyword in summary.lower():
-                            matched_keywords.append(keyword)
-
-                if not matched_keywords:
-                    dag_logger.debug(
-                        f"Article '{title}' does not match any keywords. Skipping."
-                    )
-                    continue
-
-                # Inserimento nel DB con gestione dei duplicati (UNIQUE su URL)
                 try:
-                    cursor.execute(
-                        """
+                    cursor.execute("""
                         INSERT INTO articles (url, title, source, fetch_timestamp, match_keywords)
                         VALUES (?, ?, ?, ?, ?)
-                    """,
-                        (
-                            url,
-                            title,
-                            source,
-                            fetch_timestamp,
-                            json.dumps(matched_keywords),
-                        ),
-                    )  # Salva keywords come JSON string
-
-                    conn.commit()
-                    new_articles_count += 1
-                    # Aggiungi l'articolo completo alla lista delle novità
+                    """, (
+                        article["url"], article["title"], article["source"],
+                        article["fetch_timestamp"], json.dumps(article["matched_keywords"])
+                    ))
                     newly_added_articles.append(article)
-                    dag_logger.info(f"New article stored: '{title}' from {source}")
+                    dag_logger.info(f"New article stored: '{article['title']}' from {article['source']}")
                 except sqlite3.IntegrityError:
-                    # Questo significa che l'URL esiste già (duplicato), non è un errore da loggare come critico
-                    dag_logger.debug(
-                        f"Article already exists (URL: {url}). Skipping insertion."
-                    )
+                    dag_logger.debug(f"Article already exists (URL: {article['url']}). Skipping.")
                 except Exception as e:
-                    # Altri errori durante l'inserimento
-                    dag_logger.error(f"Error inserting article '{title}' ({url}): {e}")
-                    conn.rollback()  # Esegue un rollback per l'operazione corrente fallita
+                    dag_logger.error(f"Error inserting article '{article['title']}' ({article['url']}): {e}")
 
-        except sqlite3.Error as e:
-            dag_logger.error(f"Database error during filter and store operation: {e}")
-            # Non rilanciare qui per non far fallire l'intero DAG se c'è un problema generico dopo aver processato alcuni articoli
-        finally:
-            if conn:
-                conn.close()
-
-        return new_articles_count, newly_added_articles
+            conn.commit()
+        return newly_added_articles

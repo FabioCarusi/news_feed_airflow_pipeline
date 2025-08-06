@@ -5,7 +5,10 @@ import logging
 from datetime import datetime, timedelta
 
 # Import functions from the 'include' folder
-from webscraping_airflow_pipeline.include.store_news import DBInit, StoredNews
+from webscraping_airflow_pipeline.include.store_news import (
+    ArticleRepository,
+    filter_articles_by_keywords,
+)
 from webscraping_airflow_pipeline.include.utils import (
     ConfigLoader,
     NotificationFormatter,
@@ -42,8 +45,6 @@ default_args = {
 config_loader = ConfigLoader()
 formatter = NotificationFormatter()
 callbacks = AirflowCallbackHandler(formatter=formatter)
-db = DBInit() # This can be removed if DBInit only has static methods
-news = StoredNews()
 
 @dag(
     dag_id="news_feed_pipeline",
@@ -62,8 +63,10 @@ def news_feed_pipeline():
     def initialize_db_task():
         """Initializes the database for the news feed."""
         db_name = "news_feed.db"
-        db.init_db(DATA_DIR, db_name)
-        return db.get_db_path(DATA_DIR, db_name)
+        db_path = os.path.join(DATA_DIR, db_name)
+        repo = ArticleRepository(db_path)
+        repo.initialize_db()
+        return db_path
 
     @task
     def fetch_all_headlines(source_config: dict):
@@ -107,14 +110,19 @@ def news_feed_pipeline():
             f"Total fetched articles across all sources: {len(flattened_articles)}"
         )
 
-        new_articles_count, newly_added_articles = news.store_filtered_news(
-            db_path, flattened_articles, keywords
+        # 1. Business Logic: Filter articles based on keywords
+        articles_to_store = filter_articles_by_keywords(
+            articles=flattened_articles, keywords=keywords
         )
+
+        # 2. Data Access: Store the filtered articles in the database
+        repo = ArticleRepository(db_path)
+        newly_added_articles = repo.add_articles(articles_to_store)
 
         dag_logger.info(
-            f"Successfully filtered and stored {new_articles_count} new articles."
+            f"Successfully stored {len(newly_added_articles)} new articles."
         )
-
+        
         return newly_added_articles
 
     @task
@@ -126,9 +134,7 @@ def news_feed_pipeline():
             f"Generating Telegram chunks for {len(newly_added_articles)} new articles."
         )
         # Call the new chunking function
-        telegram_message_chunks = formatter.generate_telegram_message_chunks(
-            newly_added_articles, chunk_size=5
-        )
+        telegram_message_chunks = formatter.generate_telegram_message_chunks(newly_added_articles)
         dag_logger.info(
             f"Generated {len(telegram_message_chunks)} chunks for Telegram."
         )
