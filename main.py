@@ -179,7 +179,7 @@ def news_feed_pipeline():
         source_config=_sources_to_fetch
     )
 
-    # _db_path >> _all_fetched_articles
+    _db_path >> _all_fetched_articles
 
     # 3. Filter and store news. Depends on fetch completion, DB init, and keyword loading.
     _filtered_and_stored_news = filter_and_store_all_news(
