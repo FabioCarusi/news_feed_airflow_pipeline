@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rss-feed-airflow-pipeline"
+version = "0.1.0"
+description = "A personalized news feed pipeline with multi-site scraping and keyword filtering."
+authors = [
+  { name="Fabio Carusi", email="carusi@inwind.it" },
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "apache-airflow>=2.6.0",
+    "python-telegram-bot>=20.0",
+    "nest-asyncio",
+    "feedparser" 
+]
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["webscraping_airflow_pipeline*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--cov=webscraping_airflow_pipeline",
+    "--cov-report=term-missing",
+]
+
