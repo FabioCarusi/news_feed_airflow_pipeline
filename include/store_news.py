@@ -4,7 +4,7 @@ import logging
 import json
 from contextlib import contextmanager
 
-dag_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def filter_articles_by_keywords(
@@ -23,7 +23,7 @@ def filter_articles_by_keywords(
         list[dict]: A new list containing only the articles that matched,
                     with an added 'matched_keywords' key.
     """
-    dag_logger.info(f"Filtering {len(articles)} articles with {len(keywords)} keywords.")
+    logger.info(f"Filtering {len(articles)} articles with {len(keywords)} keywords.")
     filtered_articles = []
     lower_keywords = [k.lower() for k in keywords]
 
@@ -32,7 +32,7 @@ def filter_articles_by_keywords(
         summary = article.get("summary", "").strip()
 
         if not article.get("url") or not title:
-            dag_logger.warning(f"Skipping article with missing URL or Title: {article}")
+            logger.warning(f"Skipping article with missing URL or Title: {article}")
             continue
 
         matched_keywords = {
@@ -43,9 +43,9 @@ def filter_articles_by_keywords(
             article["matched_keywords"] = list(matched_keywords)
             filtered_articles.append(article)
         else:
-            dag_logger.debug(f"Article '{title}' did not match any keywords. Skipping.")
+            logger.debug(f"Article '{title}' did not match any keywords. Skipping.")
 
-    dag_logger.info(f"Found {len(filtered_articles)} articles matching keywords.")
+    logger.info(f"Found {len(filtered_articles)} articles matching keywords.")
     return filtered_articles
 
 
@@ -66,7 +66,7 @@ class ArticleRepository:
         try:
             yield conn
         except sqlite3.Error as e:
-            dag_logger.error(f"Database error: {e}")
+            logger.error(f"Database error: {e}")
             conn.rollback()
             raise
         finally:
@@ -87,8 +87,19 @@ class ArticleRepository:
                     ingestion_timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Tabella per i log
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    dag_id TEXT,
+                    task_id TEXT,
+                    level TEXT NOT NULL,
+                    message TEXT NOT NULL
+                )
+            """)
             conn.commit()
-        dag_logger.info(f"Database initialized and table 'articles' verified at {self.db_path}")
+        logger.info(f"Database initialized and table 'articles' verified at {self.db_path}")
 
     def add_articles(self, articles: list[dict]) -> list[dict]:
         """
@@ -110,11 +121,11 @@ class ArticleRepository:
                         article["fetch_timestamp"], json.dumps(article["matched_keywords"])
                     ))
                     newly_added_articles.append(article)
-                    dag_logger.info(f"New article stored: '{article['title']}' from {article['source']}")
+                    logger.info(f"New article stored: '{article['title']}' from {article['source']}")
                 except sqlite3.IntegrityError:
-                    dag_logger.debug(f"Article already exists (URL: {article['url']}). Skipping.")
+                    logger.debug(f"Article already exists (URL: {article['url']}). Skipping.")
                 except Exception as e:
-                    dag_logger.error(f"Error inserting article '{article['title']}' ({article['url']}): {e}")
+                    logger.error(f"Error inserting article '{article['title']}' ({article['url']}): {e}")
 
             conn.commit()
         return newly_added_articles

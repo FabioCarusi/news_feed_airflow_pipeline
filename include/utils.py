@@ -6,7 +6,6 @@ from airflow.utils.email import send_email
 from airflow.models.xcom import XCom
 from airflow.models import Variable
 
-
 logger = logging.getLogger(__name__)
 
 class ConfigLoader:
