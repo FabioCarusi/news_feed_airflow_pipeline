@@ -1,4 +1,12 @@
 */__pycache__/*
 __pycache__/
-data/*
-*.db
+
+# Ignora gli ambienti virtuali di Python
+.venv/
+
+# Ignora i file di database generati a runtime
+**/assets/news_feed.db*
+**/data/news_feed.db*
+
+data/query.py
+
