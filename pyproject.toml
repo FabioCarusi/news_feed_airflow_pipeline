@@ -37,4 +37,7 @@ addopts = [
     "--cov=webscraping_airflow_pipeline",
     "--cov-report=term-missing",
 ]
+[tool.setuptools.package-data]
+# Includi tutti i file nelle directory 'assets' e 'config'
+"webscraping_airflow_pipeline" = ["assets/*", "config/*.json"]
 
