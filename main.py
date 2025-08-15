@@ -35,6 +35,12 @@ CHAT_ID = Variable.get("TELEGRAM_CHAT_ID")
 # Main logger
 logger = logging.getLogger(__name__)
 
+
+# Instantiate helper classes
+config_loader = ConfigLoader()
+formatter = NotificationFormatter()
+callbacks = AirflowCallbackHandler(formatter=formatter)
+
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -42,13 +48,8 @@ default_args = {
     "email_on_retry": False,
     "retries": 3,
     "retry_delay": timedelta(minutes=5),
+    "on_failure_callback": callbacks.send_task_failure_email,
 }
-
-# Instantiate helper classes
-config_loader = ConfigLoader()
-formatter = NotificationFormatter()
-callbacks = AirflowCallbackHandler(formatter=formatter)
-
 
 @dag(
     dag_id="news_feed_pipeline",
@@ -59,7 +60,6 @@ callbacks = AirflowCallbackHandler(formatter=formatter)
     catchup=False,
     schedule="0 8 * * *",
     on_success_callback=callbacks.send_dag_success_email,
-    on_failure_callback=callbacks.send_task_failure_email,
 )
 def news_feed_pipeline():
 
@@ -79,7 +79,7 @@ def news_feed_pipeline():
         """
         Mapped task for fetching news from a single source.
         """
-        with task_db_logger(ti.xcom_pull(task_ids='initialize_db_task'), ti):    
+        with task_db_logger(ti.xcom_pull(task_ids="initialize_db_task"), ti):
             source_name = source_config["name"]
             source_url = source_config["url"]
 
@@ -99,14 +99,18 @@ def news_feed_pipeline():
 
     @task
     def filter_and_store_all_news(
-        all_fetched_articles_list: list, db_path: str, keywords: list, ti=None):
+        all_fetched_articles_list: list, db_path: str, keywords: list, ti=None
+    ):
         """
         Filters news by keyword and stores them in the DB.
         """
-        
+
         with task_db_logger(db_path, ti):
             flattened_articles = [
-                item for sublist in all_fetched_articles_list for item in sublist if item
+                item
+                for sublist in all_fetched_articles_list
+                for item in sublist
+                if item
             ]
 
             if not flattened_articles:
@@ -116,7 +120,7 @@ def news_feed_pipeline():
             logger.info(
                 f"Total fetched articles across all sources: {len(flattened_articles)}"
             )
-        
+
             # 1. Business Logic: Filter articles based on keywords
             articles_to_store = filter_articles_by_keywords(
                 articles=flattened_articles, keywords=keywords
@@ -152,7 +156,11 @@ def news_feed_pipeline():
 
     @task
     def send_telegram_notification_task(
-        telegram_message_chunks: list[str], bot_token: str, chat_id: str, db_path: str, ti=None
+        telegram_message_chunks: list[str],
+        bot_token: str,
+        chat_id: str,
+        db_path: str,
+        ti=None,
     ):
         """Sends notifications to Telegram in chunks."""
         with task_db_logger(db_path, ti):
@@ -189,7 +197,9 @@ def news_feed_pipeline():
     [_all_fetched_articles] >> _filtered_and_stored_news
 
     # 4. Generate Telegram chunks
-    _telegram_message_chunks = generate_telegram_chunks_task(_filtered_and_stored_news, _db_path)
+    _telegram_message_chunks = generate_telegram_chunks_task(
+        _filtered_and_stored_news, _db_path
+    )
 
     # 5. Send Telegram chunks
     # This task depends on the chunk generation.
