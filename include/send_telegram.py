@@ -1,36 +1,59 @@
-import telegram
+"""
+Module for sending Telegram notifications.
+"""
+
 import asyncio
 import logging
+
 import nest_asyncio
+import telegram
 
 nest_asyncio.apply()
 
 logger = logging.getLogger(__name__)
 
-async def _send_single_telegram_message(telegram_client, chat_id: str, message_text: str):
+
+async def _send_single_telegram_message(
+    telegram_client, chat_id: str, message_text: str
+):
     """Async helper function to send a single message."""
     try:
         await telegram_client.send_message(
             chat_id=chat_id,
             text=message_text,
-            parse_mode='HTML',
-            disable_web_page_preview=True
+            parse_mode="HTML",
+            disable_web_page_preview=True,
         )
-        logger.info(f"Telegram message sent successfully to chat_id: {chat_id}")
+        logger.info("Telegram message sent successfully to chat_id: %s", chat_id)
     except telegram.error.TelegramError as e:
-        logger.error(f"Telegram error while sending message: {e}")
+        logger.error("Telegram error while sending message: %s", e)
         raise
     except Exception as e:
-        logger.error(f"Generic error while sending Telegram message: {e}")
+        logger.error("Generic error while sending Telegram message: %s", e)
         raise
 
+
 def run_async(func):
+    """
+    Run decorated asynchronous function using asyncio.run.
+
+    Args:
+        func (Callable): The asynchronous function to be executed.
+
+    Returns:
+        Callable: A wrapper function that executes the async function synchronously.
+    """
+
     def wrapper(*args, **kwargs):
-        return asyncio.run(func(*args, **kwargs)) 
+        return asyncio.run(func(*args, **kwargs))
+
     return wrapper
 
+
 @run_async
-async def send_telegram_messages_in_chunks(bot_token: str, chat_id: str, messages: list[str]):
+async def send_telegram_messages_in_chunks(
+    bot_token: str, chat_id: str, messages: list[str]
+):
     """
     Sends a list of HTML messages to a Telegram chat via the bot.
     Adds a small delay between messages to avoid Telegram's flood limit.
@@ -45,24 +68,17 @@ async def send_telegram_messages_in_chunks(bot_token: str, chat_id: str, message
         return
 
     telegram_client = telegram.Bot(token=bot_token)
-    
     # Telegram generally allows about 20 messages per minute per chat.
     # 0.5 seconds delay means max 2 messages per second, which is safe.
-    MESSAGE_SEND_DELAY_SECONDS = 0.5 
-
+    delay = 0.5
     for i, message_text in enumerate(messages):
-        logger.info(f'Sending message {i+1}/{len(messages)} to Telegram.')
+        logger.info("Sending message %d/%d to Telegram.", i + 1, len(messages))
         # Telegram has a limit of 4096 characters for HTML messages.
         # Truncate if the message is too long.
         if len(message_text) > 4096:
             logger.warning("Telegram message content too long. It will be truncated.")
-            message_text = message_text[:4090] + "..." # Leave space for the 3 dots
-        
-        # Usa 'await' per chiamare la coroutine, non asyncio.run()
+            message_text = message_text[:4090] + "..."
         await _send_single_telegram_message(telegram_client, chat_id, message_text)
-        
-        if i < len(messages) - 1: # Don't delay after the last message
-            # Usa asyncio.sleep per una pausa non bloccante
-            await asyncio.sleep(MESSAGE_SEND_DELAY_SECONDS)
-
+        if i < len(messages) - 1:
+            await asyncio.sleep(delay)
     logger.info("All Telegram messages sent.")

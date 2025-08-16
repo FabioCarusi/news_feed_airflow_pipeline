@@ -1,3 +1,14 @@
+"""
+This module provides a custom logging handler for SQLite databases,
+allowing Airflow task logs to be stored directly in a specified database.
+
+It includes:
+- 'DBLogHandler': A 'logging.Handler' subclass that writes log records
+  to a SQLite table.
+- 'task_db_logger': A context manager to temporarily attach and detach
+  the 'DBLogHandler' to the root logger for the duration of an Airflow task.
+"""
+
 import logging
 import sqlite3
 from contextlib import contextmanager
@@ -37,11 +48,11 @@ class DBLogHandler(logging.Handler):
             )
             conn.commit()
             conn.close()
-        except Exception as e:
+        except (sqlite3.DatabaseError, sqlite3.OperationalError, sqlite3.IntegrityError) as e:
             print(
                 f"CRITICAL: Impossibile scrivere log su database: {e}", file=sys.stderr
             )
-
+            raise
 
 @contextmanager
 def task_db_logger(db_path: str, ti: Optional[TaskInstance] = None):

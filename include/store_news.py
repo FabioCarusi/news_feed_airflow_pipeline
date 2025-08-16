@@ -1,3 +1,12 @@
+"""
+This module provides functionalities for storing and managing news articles in a SQLite database.
+
+It includes:
+- `filter_articles_by_keywords`: A function to filter articles based on a list of keywords.
+- `ArticleRepository`: A class that handles all database operations related to articles,
+  including initialization, adding new articles, and managing connections.
+"""
+
 import sqlite3
 import os
 import logging
@@ -23,7 +32,7 @@ def filter_articles_by_keywords(
         list[dict]: A new list containing only the articles that matched,
                     with an added 'matched_keywords' key.
     """
-    logger.info(f"Filtering {len(articles)} articles with {len(keywords)} keywords.")
+    logger.info("Filtering %d articles with %d keywords.", len(articles), len(keywords))
     filtered_articles = []
     lower_keywords = [k.lower() for k in keywords]
 
@@ -32,7 +41,7 @@ def filter_articles_by_keywords(
         summary = article.get("summary", "").strip()
 
         if not article.get("url") or not title:
-            logger.warning(f"Skipping article with missing URL or Title: {article}")
+            logger.warning("Skipping article with missing URL or Title: %s", article)
             continue
 
         matched_keywords = {
@@ -43,9 +52,9 @@ def filter_articles_by_keywords(
             article["matched_keywords"] = list(matched_keywords)
             filtered_articles.append(article)
         else:
-            logger.debug(f"Article '{title}' did not match any keywords. Skipping.")
+            logger.debug("Article '%s' did not match any keywords. Skipping.", title)
 
-    logger.info(f"Found {len(filtered_articles)} articles matching keywords.")
+    logger.info("Found %d articles matching keywords.", len(filtered_articles))
     return filtered_articles
 
 
@@ -66,7 +75,7 @@ class ArticleRepository:
         try:
             yield conn
         except sqlite3.Error as e:
-            logger.error(f"Database error: {e}")
+            logger.error("Database error: %s", e)
             conn.rollback()
             raise
         finally:
@@ -76,7 +85,8 @@ class ArticleRepository:
         """Initializes the database and creates the articles table if it doesn't exist."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS articles (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     url TEXT UNIQUE NOT NULL,
@@ -86,9 +96,11 @@ class ArticleRepository:
                     match_keywords TEXT,
                     ingestion_timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
+            """
+            )
             # Tabella per i log
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -97,9 +109,12 @@ class ArticleRepository:
                     level TEXT NOT NULL,
                     message TEXT NOT NULL
                 )
-            """)
+            """
+            )
             conn.commit()
-        logger.info(f"Database initialized and table 'articles' verified at {self.db_path}")
+        logger.info(
+            "Database initialized and table 'articles' verified at %s", self.db_path
+        )
 
     def add_articles(self, articles: list[dict]) -> list[dict]:
         """
@@ -113,19 +128,36 @@ class ArticleRepository:
             cursor = conn.cursor()
             for article in articles:
                 try:
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         INSERT INTO articles (url, title, source, fetch_timestamp, match_keywords)
                         VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        article["url"], article["title"], article["source"],
-                        article["fetch_timestamp"], json.dumps(article["matched_keywords"])
-                    ))
+                    """,
+                        (
+                            article["url"],
+                            article["title"],
+                            article["source"],
+                            article["fetch_timestamp"],
+                            json.dumps(article["matched_keywords"]),
+                        ),
+                    )
                     newly_added_articles.append(article)
-                    logger.info(f"New article stored: '{article['title']}' from {article['source']}")
+                    logger.info(
+                        "New article stored: '%s' from %s",
+                        article["title"],
+                        article["source"],
+                    )
                 except sqlite3.IntegrityError:
-                    logger.debug(f"Article already exists (URL: {article['url']}). Skipping.")
+                    logger.debug(
+                        "Article already exists (URL: %s). Skipping.", article["url"]
+                    )
                 except Exception as e:
-                    logger.error(f"Error inserting article '{article['title']}' ({article['url']}): {e}")
+                    logger.error(
+                        "Error inserting article '%s' (%s): %s",
+                        article["title"],
+                        article["url"],
+                        e,
+                    )
 
             conn.commit()
         return newly_added_articles
