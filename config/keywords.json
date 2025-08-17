@@ -13,15 +13,12 @@
     "dbt",
     "fabric",
     "data lake",
-    "dbt",
-    "datawherahouse",
     "data warehouse",
     "lakehouse",
     "snowflake",
     "data catalog",
     "bigquery",
     "apache",
-    "python",
     "spark",
     "spark streaming"
 ]
