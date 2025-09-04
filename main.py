@@ -86,27 +86,25 @@ def news_feed_pipeline():
         return db_path
 
     @task
-    def fetch_all_headlines(source_config: dict, ti) -> list:
+    def fetch_all_headlines(source_config: dict) -> list:
         """Task per il fetch delle news da una singola fonte."""
-        db_path = ti.xcom_pull(task_ids="initialize_db_task")
-        with task_db_logger(db_path, ti):
-            source_name = source_config.get("name")
-            source_url = source_config.get("url")
-            logger.info("Fetching headlines from: %s (%s)", source_name, source_url)
-            if not source_name or not source_url:
-                logger.info(
-                    "No %s or %s found in config. Skipping.", source_name, source_url
-                )
+        source_name = source_config.get("name")
+        source_url = source_config.get("url")
+        logger.info("Fetching headlines from: %s (%s)", source_name, source_url)
+        if not source_name or not source_url:
+            logger.warning(
+                "Skipping source with missing name or URL: %s", source_config
+            )
+            return []
+        else:
+            articles = fetch_rss_articles(source_url, source_name)
+            if not articles:
+                logger.warning("No articles found for %s.", source_name)
                 return []
-            else:
-                articles = fetch_rss_articles(source_url, source_name)
-                if not articles:
-                    logger.warning("No articles found for %s.", source_name)
-                    return []
-                for article in articles:
-                    article["fetch_timestamp"] = datetime.now().isoformat()
-                logger.info("Fetched %d articles from %s.", len(articles), source_name)
-                return articles
+            for article in articles:
+                article["fetch_timestamp"] = datetime.now().isoformat()
+            logger.info("Fetched %d articles from %s.", len(articles), source_name)
+            return articles
 
     @task
     def filter_and_store_all_news(

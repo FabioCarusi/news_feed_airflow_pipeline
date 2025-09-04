@@ -23,31 +23,28 @@ class DBLogHandler(logging.Handler):
     Si integra con il framework di logging standard di Python.
     """
 
-    def __init__(self, db_path: str, dag_id: str, task_id: str):
+    def __init__(self, conn: sqlite3.Connection, dag_id: str, task_id: str):
         super().__init__()
-        self.db_path = db_path
+        self.conn = conn
         self.dag_id = dag_id
         self.task_id = task_id
+        self.cursor = self.conn.cursor()
 
     def emit(self, record: logging.LogRecord):
         """
         Scrive un record di log nel database.
         Questo metodo viene chiamato automaticamente dal framework di logging.
         """
+        # La connessione e il commit sono gestiti dal context manager
         try:
             message = self.format(record)
-
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute(
+            self.cursor.execute(
                 """
                 INSERT INTO logs (level, message, dag_id, task_id)
                 VALUES (?, ?, ?, ?)
                 """,
                 (record.levelname, message, self.dag_id, self.task_id),
             )
-            conn.commit()
-            conn.close()
         except (sqlite3.DatabaseError, sqlite3.OperationalError, sqlite3.IntegrityError) as e:
             print(
                 f"CRITICAL: Impossibile scrivere log su database: {e}", file=sys.stderr
@@ -65,11 +62,25 @@ def task_db_logger(db_path: str, ti: Optional[TaskInstance] = None):
             "TaskInstance (ti) è necessario per ottenere il contesto del DAG."
         )
 
-    root_logger = logging.getLogger()
-
-    db_handler = DBLogHandler(db_path=db_path, dag_id=ti.dag_id, task_id=ti.task_id)
-    root_logger.addHandler(db_handler)
+    conn = None
+    db_handler = None
     try:
+        conn = sqlite3.connect(db_path)
+        root_logger = logging.getLogger()
+
+        db_handler = DBLogHandler(conn=conn, dag_id=ti.dag_id, task_id=ti.task_id)
+        root_logger.addHandler(db_handler)
+
         yield root_logger
+
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logging.error("Errore nel context manager del logger DB: %s", e, exc_info=True)
+        raise
     finally:
-        root_logger.removeHandler(db_handler)
+        if db_handler:
+            logging.getLogger().removeHandler(db_handler)
+        if conn:
+            conn.close()
