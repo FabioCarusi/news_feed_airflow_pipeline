@@ -14,7 +14,6 @@ The DAG is scheduled to run daily at 8:00 AM UTC.
 
 import os
 import logging
-import asyncio
 from datetime import datetime, timedelta
 
 from airflow.decorators import dag, task
@@ -154,7 +153,7 @@ def news_feed_pipeline():
             return telegram_message_chunks
 
     @task
-    def send_telegram_notification_task(
+    async def send_telegram_notification_task(
         telegram_message_chunks,
         bot_token,
         chat_id,
@@ -162,16 +161,14 @@ def news_feed_pipeline():
         ti=None,
     ) -> None:
         """Invia notifiche Telegram a chunk."""
-        with task_db_logger(db_path, ti):  # Usa il logger per la coerenza dei log
+        with task_db_logger(db_path, ti):
             if not bot_token or not chat_id:
                 logger.error("Telegram credentials missing. Cannot send notification.")
                 raise ValueError("Telegram credentials not configured correctly.")
-            asyncio.run(
-                send_telegram_messages_in_chunks(
-                    bot_token=bot_token,
-                    chat_id=chat_id,
-                    messages=telegram_message_chunks,
-                )
+            await send_telegram_messages_in_chunks(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                messages=telegram_message_chunks,
             )
 
     sources_to_fetch = config_loader.load_news_sources(NEWS_SOURCES_CONFIG_FILE)
