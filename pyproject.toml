@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rss-feed-airflow-pipeline"
 version = "0.1.0"
-description = "A personalized news feed pipeline with multi-site scraping and keyword filtering."
+description = "A personalized news feed pipeline that processes RSS feeds and filters them by keywords."
 authors = [
   { name="Fabio Carusi", email="carusi@inwind.it" },
 ]
@@ -40,4 +40,3 @@ addopts = [
 [tool.setuptools.package-data]
 # Includi tutti i file nelle directory 'assets' e 'config'
 "webscraping_airflow_pipeline" = ["assets/*", "config/*.json"]
-

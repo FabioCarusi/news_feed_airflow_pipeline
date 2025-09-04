@@ -1,12 +1,23 @@
+"""
+This module contains utility classes for the news scraping Airflow pipeline.
+
+It includes:
+'ConfigLoader': Handles loading of configuration files such as news sources and keywords.
+'NotificationFormatter': Formats notification content for different channels (e.g., email, Telegram).
+'AirflowCallbackHandler': Manages Airflow-specific callbacks, including sending email notifications
+for DAG success and task failures.
+"""
+
 import json
 import os
 import logging
 from datetime import datetime
 from airflow.utils.email import send_email
-from airflow.models.xcom import XCom
+from airflow.models import XCom
 from airflow.models import Variable
 
 logger = logging.getLogger(__name__)
+
 
 class ConfigLoader:
     """Handles loading of configuration files."""
@@ -18,7 +29,7 @@ class ConfigLoader:
 
         with open(source_config_file, "r", encoding="utf-8") as f:
             sources = json.load(f)
-        logger.info(f"Loaded {len(sources)} news sources from config file.")
+        logger.info("Loaded %d news sources from config file.", len(sources))
         return sources
 
     def load_keywords(self, keyword_config_file: str) -> list[str]:
@@ -28,8 +39,9 @@ class ConfigLoader:
 
         with open(keyword_config_file, "r", encoding="utf-8") as f:
             keywords = json.load(f)
-        logger.info(f"Loaded {len(keywords)} keywords from config file.")
+        logger.info("Loaded %d keywords from config file.", len(keywords))
         return keywords
+
 
 class NotificationFormatter:
     """Handles the formatting of notification content for different channels."""
@@ -71,10 +83,10 @@ class NotificationFormatter:
         """Generates the full HTML content for an email notification."""
         if not articles:
             return "<p>No new interesting articles found today.</p>"
-        
+
         now = datetime.now()
-        generation_date = now.strftime('%Y-%m-%d')
-        generation_datetime = now.strftime('%Y-%m-%d %H:%M:%S')
+        generation_date = now.strftime("%Y-%m-%d")
+        generation_datetime = now.strftime("%Y-%m-%d %H:%M:%S")
 
         # Basic structure of the email/notification body
         html_template_start = f"""
@@ -111,12 +123,17 @@ class NotificationFormatter:
         """
 
         articles_html = "".join(
-            [self._generate_single_article_html(article, is_telegram=False) for article in articles]
+            [
+                self._generate_single_article_html(article, is_telegram=False)
+                for article in articles
+            ]
         )
 
         return html_template_start + articles_html + html_template_end
 
-    def generate_telegram_message_chunks(self, articles: list, chunk_size: int = 10) -> list[str]:
+    def generate_telegram_message_chunks(
+        self, articles: list, chunk_size: int = 10
+    ) -> list[str]:
         """
         Generates a list of HTML strings, where each string contains a block of articles
         optimized for Telegram.
@@ -131,16 +148,23 @@ class NotificationFormatter:
         chunks = []
 
         # Header for the first message, compatible with Telegram HTML
-        header = f"<b>Your Daily News Feed - {datetime.now().strftime('%Y-%m-%d')}</b>\n\n"
-        header += "Here are the latest and most relevant articles for your interests:\n\n"
+        header = (
+            f"<b>Your Daily News Feed - {datetime.now().strftime('%Y-%m-%d')}</b>\n\n"
+        )
+        header += (
+            "Here are the latest and most relevant articles for your interests:\n\n"
+        )
 
         if not articles:
             return [header + "No new interesting articles found today."]
 
         for i in range(0, len(articles), chunk_size):
-            chunk_of_articles = articles[i:i + chunk_size]
+            chunk_of_articles = articles[i : i + chunk_size]
             chunk_body = "".join(
-                [self._generate_single_article_html(article, is_telegram=True) for article in chunk_of_articles]
+                [
+                    self._generate_single_article_html(article, is_telegram=True)
+                    for article in chunk_of_articles
+                ]
             )
 
             message = chunk_body
@@ -150,6 +174,7 @@ class NotificationFormatter:
             chunks.append(message)
 
         return chunks
+
 
 class AirflowCallbackHandler:
     """Handles Airflow-specific callbacks, like task failure notifications."""
@@ -165,27 +190,37 @@ class AirflowCallbackHandler:
         try:
             recipient = Variable.get("ALERT_EMAIL_RECIPIENT")
         except KeyError:
-            logger.error("Airflow Variable 'ALERT_EMAIL_RECIPIENT' not found. Cannot send success email.")
+            logger.error(
+                "Airflow Variable 'ALERT_EMAIL_RECIPIENT' not found. Cannot send success email."
+            )
             return
 
-        dag_run = context['dag_run']
+        dag_run = context["dag_run"]
         dag_id = dag_run.dag_id
-        
+
         # Pull the list of new articles from the final storage task's XCom
         newly_added_articles = XCom.get_one(
             dag_id=dag_id,
-            task_id='filter_and_store_all_news',
+            task_id="filter_and_store_all_news",
+            key="newly_added_articles",
             run_id=dag_run.run_id,
-            include_prior_dates=False
+            include_prior_dates=False,
         )
 
         subject = f"[Airflow] SUCCESS: DAG {dag_id} completed"
-        
+
         if newly_added_articles:
-            logger.info(f"Found {len(newly_added_articles)} new articles to include in success email.")
-            html_content = self._formatter.generate_full_html_content(newly_added_articles)
+            logger.info(
+                "Found %d new articles to include in success email.",
+                len(newly_added_articles),
+            )
+            html_content = self._formatter.generate_full_html_content(
+                newly_added_articles
+            )
         else:
-            logger.info("No new articles found in this run. Sending a simple success notification.")
+            logger.info(
+                "No new articles found in this run. Sending a simple success notification."
+            )
             html_content = f"""
             <h3>DAG Run Successful</h3>
             <p><b>DAG:</b> {dag_id}</p>
@@ -204,14 +239,14 @@ class AirflowCallbackHandler:
             # Retrieve the recipient's email from Airflow Variables
             recipient = Variable.get("ALERT_EMAIL_RECIPIENT")
         except KeyError:
-            logger.error("Airflow Variable 'ALERT_EMAIL_RECIPIENT' not found. Cannot send notification email.")
+            logger.error("Airflow Variable 'ALERT_EMAIL_RECIPIENT' not found.")
             return
 
-        task_instance = context['task_instance']
+        task_instance = context["task_instance"]
         task_id = task_instance.task_id
         dag_id = task_instance.dag_id
         log_url = task_instance.log_url
-        exception = context.get('exception')
+        exception = context.get("exception")
 
         subject = f"[Airflow] Task Failure: {dag_id}.{task_id}"
         html_content = f"""
@@ -228,6 +263,6 @@ class AirflowCallbackHandler:
     def _send_email(self, recipient: str, subject: str, html_content: str):
         try:
             send_email(to=[recipient], subject=subject, html_content=html_content)
-            logger.info(f"Email sent successfully to {recipient}")
+            logger.info("Email sent successfully to %s", recipient)
         except Exception as e:
-            logger.error(f"Error sending notification email: {e}")
+            logger.error("Error sending notification email: %s", e)
