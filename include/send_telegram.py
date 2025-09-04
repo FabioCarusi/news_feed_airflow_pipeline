@@ -33,24 +33,6 @@ async def _send_single_telegram_message(
         raise
 
 
-def run_async(func):
-    """
-    Run decorated asynchronous function using asyncio.run.
-
-    Args:
-        func (Callable): The asynchronous function to be executed.
-
-    Returns:
-        Callable: A wrapper function that executes the async function synchronously.
-    """
-
-    def wrapper(*args, **kwargs):
-        return asyncio.run(func(*args, **kwargs))
-
-    return wrapper
-
-
-@run_async
 async def send_telegram_messages_in_chunks(
     bot_token: str, chat_id: str, messages: list[str]
 ):
