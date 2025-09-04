@@ -202,7 +202,7 @@ class AirflowCallbackHandler:
         newly_added_articles = XCom.get_one(
             dag_id=dag_id,
             task_id="filter_and_store_all_news",
-            key="newly_added_articles",
+            key="return_value",
             run_id=dag_run.run_id,
             include_prior_dates=False,
         )

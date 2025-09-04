@@ -55,7 +55,8 @@ class DBLogHandler(logging.Handler):
 def task_db_logger(db_path: str, ti: Optional[TaskInstance] = None):
     """
     Un context manager per aggiungere e rimuovere temporaneamente un DBLogHandler
-    ai  logger esistente root per la durata di un task.
+    al logger root per la durata di un task.
+    Fornisce la connessione al database per essere usata all'interno del blocco 'with'.
     """
     if not ti:
         raise ValueError(
@@ -65,13 +66,14 @@ def task_db_logger(db_path: str, ti: Optional[TaskInstance] = None):
     conn = None
     db_handler = None
     try:
-        conn = sqlite3.connect(db_path)
+        # Aumenta il timeout per ridurre gli errori "database is locked"
+        conn = sqlite3.connect(db_path, timeout=15)
         root_logger = logging.getLogger()
 
         db_handler = DBLogHandler(conn=conn, dag_id=ti.dag_id, task_id=ti.task_id)
         root_logger.addHandler(db_handler)
 
-        yield root_logger
+        yield conn  # Fornisce l'oggetto connessione
 
         conn.commit()
     except Exception as e:

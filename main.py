@@ -79,10 +79,10 @@ def news_feed_pipeline():
         """Inizializza il database per il feed di news."""
         db_name = "news_feed.db"
         db_path = os.path.join(DATA_DIR, db_name)
-        with task_db_logger(db_path, ti) as db_task_logger:
+        with task_db_logger(db_path, ti) as conn:
             repo = ArticleRepository(db_path)
-            repo.initialize_db()
-            db_task_logger.info("Database initialized successfully.")
+            repo.initialize_db(conn=conn)
+            logger.info("Database initialized successfully.")
         return db_path
 
     @task
@@ -111,7 +111,7 @@ def news_feed_pipeline():
         all_fetched_articles_list, db_path, keywords, ti=None
     ) -> list:
         """Filtra le news per keyword e le salva nel DB."""
-        with task_db_logger(db_path, ti):
+        with task_db_logger(db_path, ti) as conn:
             flattened_articles = [
                 item
                 for sublist in all_fetched_articles_list
@@ -129,7 +129,7 @@ def news_feed_pipeline():
                 articles=flattened_articles, keywords=keywords
             )
             repo = ArticleRepository(db_path)
-            newly_added_articles = repo.add_articles(articles_to_store)
+            newly_added_articles = repo.add_articles(articles_to_store, conn=conn)
             logger.info(
                 "Successfully stored %d new articles.",
                 len(newly_added_articles),
@@ -139,7 +139,7 @@ def news_feed_pipeline():
     @task
     def generate_telegram_chunks_task(newly_added_articles, db_path, ti=None) -> list:
         """Genera una lista di chunk HTML per Telegram."""
-        with task_db_logger(db_path, ti):
+        with task_db_logger(db_path, ti):  # Usa il logger per la coerenza dei log
             logger.info(
                 "Generating Telegram chunks for %d new articles.",
                 len(newly_added_articles),
@@ -162,7 +162,7 @@ def news_feed_pipeline():
         ti=None,
     ) -> None:
         """Invia notifiche Telegram a chunk."""
-        with task_db_logger(db_path, ti):
+        with task_db_logger(db_path, ti):  # Usa il logger per la coerenza dei log
             if not bot_token or not chat_id:
                 logger.error("Telegram credentials missing. Cannot send notification.")
                 raise ValueError("Telegram credentials not configured correctly.")
