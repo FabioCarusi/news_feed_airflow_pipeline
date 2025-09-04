@@ -71,11 +71,11 @@ default_args = {
     on_success_callback=callbacks.send_dag_success_email,
 )
 def news_feed_pipeline():
-    """DAG principale per la pipeline di news."""
+    """Main DAG for the news pipeline."""
 
     @task
     def initialize_db_task(ti=None) -> str:
-        """Inizializza il database per il feed di news."""
+        """Initializes the database for the news feed."""
         db_name = "news_feed.db"
         db_path = os.path.join(DATA_DIR, db_name)
         with task_db_logger(db_path, ti) as conn:
@@ -86,7 +86,7 @@ def news_feed_pipeline():
 
     @task
     def fetch_all_headlines(source_config: dict) -> list:
-        """Task per il fetch delle news da una singola fonte."""
+        """Task to fetch news from a single source."""
         source_name = source_config.get("name")
         source_url = source_config.get("url")
         logger.info("Fetching headlines from: %s (%s)", source_name, source_url)
@@ -109,7 +109,7 @@ def news_feed_pipeline():
     def filter_and_store_all_news(
         all_fetched_articles_list, db_path, keywords, ti=None
     ) -> list:
-        """Filtra le news per keyword e le salva nel DB."""
+        """Filters news by keyword and saves them to the DB."""
         with task_db_logger(db_path, ti) as conn:
             flattened_articles = [
                 item
@@ -137,8 +137,8 @@ def news_feed_pipeline():
 
     @task
     def generate_telegram_chunks_task(newly_added_articles, db_path, ti=None) -> list:
-        """Genera una lista di chunk HTML per Telegram."""
-        with task_db_logger(db_path, ti):  # Usa il logger per la coerenza dei log
+        """Generates a list of HTML chunks for Telegram."""
+        with task_db_logger(db_path, ti):  # Use logger for log consistency
             logger.info(
                 "Generating Telegram chunks for %d new articles.",
                 len(newly_added_articles),
@@ -153,23 +153,24 @@ def news_feed_pipeline():
             return telegram_message_chunks
 
     @task
-    async def send_telegram_notification_task(
+    def send_telegram_notification_task(
         telegram_message_chunks,
         bot_token,
         chat_id,
         db_path,
         ti=None,
-    ) -> None:
-        """Invia notifiche Telegram a chunk."""
+    ) -> int:
+        """Sends Telegram notifications in chunks."""
         with task_db_logger(db_path, ti):
             if not bot_token or not chat_id:
                 logger.error("Telegram credentials missing. Cannot send notification.")
                 raise ValueError("Telegram credentials not configured correctly.")
-            await send_telegram_messages_in_chunks(
+            send_telegram_messages_in_chunks(
                 bot_token=bot_token,
                 chat_id=chat_id,
                 messages=telegram_message_chunks,
             )
+        return len(telegram_message_chunks)
 
     sources_to_fetch = config_loader.load_news_sources(NEWS_SOURCES_CONFIG_FILE)
     keywords_to_use = config_loader.load_keywords(KEYWORDS_CONFIG_FILE)
