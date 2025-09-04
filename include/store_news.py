@@ -112,6 +112,7 @@ class ArticleRepository:
             """
             )
             conn.commit()
+            conn.close()
         logger.info(
             "Database initialized and table 'articles' verified at %s", self.db_path
         )
@@ -160,4 +161,5 @@ class ArticleRepository:
                     )
 
             conn.commit()
+            conn.close()
         return newly_added_articles

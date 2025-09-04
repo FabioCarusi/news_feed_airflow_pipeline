@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from airflow.utils.email import send_email
 from airflow.models import XCom
-from airflow.models import Variable
+from airflow.sdk import Variable
 
 logger = logging.getLogger(__name__)
 
