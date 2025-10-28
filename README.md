@@ -1,6 +1,6 @@
 ## RSS Feed Pipeline with Airflow
 
-This project is a data pipeline built with Apache Airflow, designed to create a custom news feed just for you. It gathers the latest articles from various RSS sources, filters them based on your favorite keywords, and keeps you updated with notifications on Telegram and via email.
+This project is a data pipeline built with Apache Airflow, designed to create a custom news fee. It gathers the latest articles from various RSS sources, filters them based on your favorite keywords.
 
 ### Key Features
 
@@ -32,7 +32,7 @@ rss_feed_pipeline/
 To get the pipeline running, your Airflow environment needs a few Python libraries. Here’s how to install them:
 
 1.  **Prerequisites:** Make sure you have Python 3.9 or higher installed.
-2.  **Virtual Environment (Recommended):** It's always a good practice to create a virtual environment to keep project dependencies isolated.
+2.  **Virtual Environment (Recommended):** 
     ```bash
     python -m venv .venv
     source .venv/bin/activate  # On Windows, use: .venv\Scripts\activate
@@ -85,7 +85,7 @@ Per far funzionare la pipeline, il tuo ambiente Airflow ha bisogno di alcune lib
 1.  **Prerequisiti:** Assicurati di avere Python 3.9 o superiore installato.
 
 
-2.  **Ambiente Virtuale (Consigliato):** È sempre una buona idea creare un ambiente virtuale per mantenere le dipendenze del progetto isolate.
+2.  **Ambiente Virtuale (Consigliato):** 
     ```bash
     python -m venv .venv
     source .venv/bin/activate  # Su Windows usa: .venv\Scripts\activate
