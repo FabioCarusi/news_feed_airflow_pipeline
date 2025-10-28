@@ -9,4 +9,6 @@ __pycache__/
 **/data/news_feed.db*
 
 data/query.py
+.pytest_cache/
+*/.pytest_cache/
 
