@@ -16,12 +16,12 @@ from typing import Generator
 from unittest.mock import MagicMock
 import pytest
 
-from webscraping_airflow_pipeline.include.store_news import (
+from news_feed_pipeline.core.store_news import (
     ArticleRepository,
     filter_articles_by_keywords,
 )
-from webscraping_airflow_pipeline.include.utils import NotificationFormatter
-from webscraping_airflow_pipeline.include.log_handler import task_db_logger
+from news_feed_pipeline.core.utils import NotificationFormatter
+from news_feed_pipeline.core.log_handler import task_db_logger
 
 # --- Fixtures: Mocks ---
 

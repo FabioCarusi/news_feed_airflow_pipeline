@@ -19,25 +19,25 @@ from datetime import datetime, timedelta
 from airflow.decorators import dag, task
 from airflow.sdk import Variable
 
-from webscraping_airflow_pipeline.include.store_news import ( # type: ignore
+from news_feed_pipeline.core.store_news import ( # type: ignore
     ArticleRepository,
     filter_articles_by_keywords,
 )
-from webscraping_airflow_pipeline.include.utils import ( # type: ignore
+from news_feed_pipeline.core.utils import ( # type: ignore
     ConfigLoader,
     NotificationFormatter,
     AirflowCallbackHandler,
 )
-from webscraping_airflow_pipeline.include.send_telegram import ( # type: ignore
+from news_feed_pipeline.core.send_telegram import ( # type: ignore
     send_telegram_messages_in_chunks,
 )
-from webscraping_airflow_pipeline.include.fetch_rss_news import fetch_rss_articles #type: ignore
-from webscraping_airflow_pipeline.include.log_handler import task_db_logger # type: ignore
+from news_feed_pipeline.core.fetch_rss_news import fetch_rss_articles #type: ignore
+from news_feed_pipeline.core.log_handler import task_db_logger # type: ignore
 
 # --- General Project Configuration ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(PROJECT_ROOT, "webscraping_airflow_pipeline/data")
-CONFIG_DIR = os.path.join(PROJECT_ROOT, "webscraping_airflow_pipeline/config")
+DATA_DIR = os.path.join(PROJECT_ROOT, "news_feed_pipeline/data")
+CONFIG_DIR = os.path.join(PROJECT_ROOT, "news_feed_pipeline/config")
 NEWS_SOURCES_CONFIG_FILE = os.path.join(CONFIG_DIR, "news_sources.json")
 KEYWORDS_CONFIG_FILE = os.path.join(CONFIG_DIR, "keywords.json")
 BOT_TOKEN = Variable.get(key="TELEGRAM_BOT_TOKEN", default=None)

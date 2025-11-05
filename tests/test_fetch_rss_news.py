@@ -8,7 +8,7 @@ successful fetches, error responses, and exceptions.
 
 from unittest.mock import patch, MagicMock
 import pytest
-from webscraping_airflow_pipeline.include.fetch_rss_news import fetch_rss_articles
+from news_feed_pipeline.core.fetch_rss_news import fetch_rss_articles
 
 # --- Fixtures ---
 
