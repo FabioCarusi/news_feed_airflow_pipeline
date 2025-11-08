@@ -182,12 +182,11 @@ def news_feed_pipeline():
     filtered_and_stored_news = filter_and_store_all_news(
         all_fetched_articles, db_path, keywords_to_use
     )
-    # [all_fetched_articles] >> filtered_and_stored_news
-
+    
     telegram_message_chunks = generate_telegram_chunks_task(
         filtered_and_stored_news, db_path
     )
-    # telegram_message_chunks >>
+    
     send_telegram_notification_task(
         telegram_message_chunks, BOT_TOKEN, CHAT_ID, db_path
     )
