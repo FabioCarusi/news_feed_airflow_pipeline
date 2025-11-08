@@ -1,4 +1,6 @@
-# pylint: disable=redefined-outer-name
+# In pytest, è una pratica standard riutilizzare i nomi delle fixture come argomenti
+# delle funzioni di test, il che può causare il warning 'redefined-outer-name' di pylint.
+# Questo warning viene qui ignorato consapevolmente.
 """
 This module contains unit tests for the web scraping Airflow pipeline.
 
