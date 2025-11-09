@@ -19,20 +19,20 @@ from datetime import datetime, timedelta
 from airflow.decorators import dag, task
 from airflow.sdk import Variable
 
-from news_feed_pipeline.core.store_news import ( # type: ignore
+from news_feed_pipeline.core.store_news import (  # type: ignore
     ArticleRepository,
     filter_articles_by_keywords,
 )
-from news_feed_pipeline.core.utils import ( # type: ignore
+from news_feed_pipeline.core.utils import (  # type: ignore
     ConfigLoader,
     NotificationFormatter,
     AirflowCallbackHandler,
 )
-from news_feed_pipeline.core.send_telegram import ( # type: ignore
+from news_feed_pipeline.core.send_telegram import (  # type: ignore
     send_telegram_messages_in_chunks,
 )
-from news_feed_pipeline.core.fetch_rss_news import fetch_rss_articles #type: ignore
-from news_feed_pipeline.core.log_handler import task_db_logger # type: ignore
+from news_feed_pipeline.core.fetch_rss_news import fetch_rss_articles  # type: ignore
+from news_feed_pipeline.core.log_handler import task_db_logger  # type: ignore
 
 # --- General Project Configuration ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -182,11 +182,11 @@ def news_feed_pipeline():
     filtered_and_stored_news = filter_and_store_all_news(
         all_fetched_articles, db_path, keywords_to_use
     )
-    
+
     telegram_message_chunks = generate_telegram_chunks_task(
         filtered_and_stored_news, db_path
     )
-    
+
     send_telegram_notification_task(
         telegram_message_chunks, BOT_TOKEN, CHAT_ID, db_path
     )
