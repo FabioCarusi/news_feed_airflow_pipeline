@@ -1,79 +1,94 @@
 """
-This module provides functionalities for storing and managing news articles in a SQLite database.
+Article storage and management module.
 
-It includes:
-- `filter_articles_by_keywords`: A function to filter articles based on a list of keywords.
-- `ArticleRepository`: A class that handles all database operations related to articles,
-  including initialization, adding new articles, and managing connections.
+This module provides functionalities for storing and managing news articles
+in a SQLite database.
+
+Components:
+- filter_articles_by_keywords: Filter articles based on keyword matching
+- ArticleRepository: Database operations handler for articles
 """
 
-import sqlite3
-import os
-import logging
 import json
-from contextlib import contextmanager, nullcontext
+import logging
+import os
+import sqlite3
+from contextlib import contextmanager
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 def filter_articles_by_keywords(
-    articles: list[dict], keywords: list[str]
-) -> list[dict]:
-    """
-    Filters a list of articles based on a list of keywords.
-
-    This is pure business logic, decoupled from the database.
+    articles: list[dict[str, Any]], keywords: list[str]
+) -> list[dict[str, Any]]:
+    """Filter articles based on keyword matching in title or summary.
 
     Args:
-        articles (list[dict]): The list of articles to filter.
-        keywords (list[str]): The keywords to match against.
+        articles: List of article dictionaries to filter.
+        keywords: List of keywords to match against.
 
     Returns:
-        list[dict]: A new list containing only the articles that matched,
-                    with an added 'matched_keywords' key.
+        Filtered list of articles with 'matched_keywords' field added.
     """
-    logger.info("Filtering %d articles with %d keywords.", len(articles), len(keywords))
+    logger.info("Filtering %d articles with %d keywords", len(articles), len(keywords))
     filtered_articles = []
-    lower_keywords = [k.lower() for k in keywords]
+    lower_keywords = [keyword.lower() for keyword in keywords]
 
     for article in articles:
         title = article.get("title", "").strip()
         summary = article.get("summary", "").strip()
 
         if not article.get("url") or not title:
-            logger.warning("Skipping article with missing URL or Title: %s", article)
+            logger.warning("Skipping article with missing URL or title: %s", article)
             continue
 
         matched_keywords = {
-            kw for kw in lower_keywords if kw in title.lower() or kw in summary.lower()
+            keyword
+            for keyword in lower_keywords
+            if keyword in title.lower() or keyword in summary.lower()
         }
 
         if matched_keywords:
             article["matched_keywords"] = list(matched_keywords)
             filtered_articles.append(article)
         else:
-            logger.debug("Article '%s' did not match any keywords. Skipping.", title)
+            logger.debug("Article '%s' did not match any keywords", title)
 
-    logger.info("Found %d articles matching keywords.", len(filtered_articles))
+    logger.info("Found %d articles matching keywords", len(filtered_articles))
     return filtered_articles
 
 
 class ArticleRepository:
-    """
-    Handles all database operations for articles.
-    This class is the single source of truth for database interactions.
+    """Handle all database operations for news articles.
+    
+    This class provides a clean interface for article storage and retrieval,
+    managing database connections and transactions internally.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str) -> None:
+        """Initialize the repository with a database path.
+        
+        Args:
+            db_path: Path to the SQLite database file.
+        """
         self.db_path = db_path
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
     @contextmanager
-    def _get_connection(self):
-        """Provides a transactional database connection."""
-        conn = sqlite3.connect(self.db_path)
+    def _get_connection(self) -> sqlite3.Connection:
+        """Provide a transactional database connection.
+        
+        Yields:
+            SQLite connection object.
+            
+        Raises:
+            sqlite3.Error: If database operation fails.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=15)
         try:
             yield conn
+            conn.commit()
         except sqlite3.Error as e:
             logger.error("Database error: %s", e)
             conn.rollback()
@@ -81,25 +96,12 @@ class ArticleRepository:
         finally:
             conn.close()
 
-    def initialize_db(self, conn: sqlite3.Connection | None = None) -> None:
+    def initialize_db(self) -> None:
+        """Initialize the database and create tables if they don't exist.
+        
+        Creates the articles table with appropriate schema.
         """
-        Inizializza il database e crea le tabelle se non esistono.
-        Se viene fornita una connessione esterna `conn`, la utilizza.
-        Altrimenti, gestisce la propria connessione.
-        """
-        cm = self._get_connection() if conn is None else nullcontext(conn)
-        with cm as connection:
-            self._initialize_db_with_conn(connection)
-            if conn is None:
-                # Esegui il commit solo se la connessione è gestita localmente
-                connection.commit()
-
-    def _initialize_db_with_conn(self, conn: sqlite3.Connection) -> None:
-        """
-        Helper che esegue l'inizializzazione del DB usando una connessione data.
-        Il commit non viene eseguito qui.
-        """
-        try:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -112,84 +114,53 @@ class ArticleRepository:
                     match_keywords TEXT,
                     ingestion_timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
-            # Tabella per i log
-            cursor.execute(
                 """
-                CREATE TABLE IF NOT EXISTS logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                    dag_id TEXT,
-                    task_id TEXT,
-                    level TEXT NOT NULL,
-                    message TEXT NOT NULL
-                )
-            """
             )
-            logger.info(
-                "Database initialized and tables 'articles' and 'logs' verified at %s",
-                self.db_path,
-            )
-        except sqlite3.Error as e:
-            logger.error("Errore durante l'inizializzazione del database: %s", e)
-            raise
+            logger.info("Database initialized successfully at %s", self.db_path)
 
-    def add_articles(
-        self, articles: list[dict], conn: sqlite3.Connection | None = None
-    ) -> list[dict]:
-        """
-        Aggiunge una lista di articoli al database, saltando i duplicati.
+    def add_articles(self, articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Add articles to the database, skipping duplicates.
 
-        Se viene fornita una connessione esterna `conn`, la utilizza all'interno
-        della transazione del chiamante. Altrimenti, crea e gestisce la propria
-        connessione e transazione.
+        Args:
+            articles: List of article dictionaries to insert.
 
         Returns:
-            list[dict]: Una lista di articoli che sono stati appena inseriti.
+            List of successfully inserted articles.
         """
-        cm = self._get_connection() if conn is None else nullcontext(conn)
-        with cm as connection:
-            newly_added = self._add_articles_with_conn(connection, articles)
-            if conn is None:
-                # Esegui il commit solo se la connessione è gestita localmente
-                connection.commit()
-            return newly_added
-
-    def _add_articles_with_conn(
-        self, conn: sqlite3.Connection, articles: list[dict]
-    ) -> list[dict]:
-        """Helper che esegue le inserzioni usando una connessione data."""
         newly_added_articles = []
-        cursor = conn.cursor()
-        for article in articles:
-            try:
-                cursor.execute(
-                    """
-                    INSERT INTO articles (url, title, source, fetch_timestamp, match_keywords)
-                    VALUES (?, ?, ?, ?, ?)
-                """,
-                    (
-                        article["url"],
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            for article in articles:
+                try:
+                    cursor.execute(
+                        """
+                        INSERT INTO articles (url, title, source, fetch_timestamp, match_keywords)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            article["url"],
+                            article["title"],
+                            article["source"],
+                            article["fetch_timestamp"],
+                            json.dumps(article.get("matched_keywords", [])),
+                        ),
+                    )
+                    newly_added_articles.append(article)
+                    logger.info(
+                        "New article stored: '%s' from %s",
                         article["title"],
                         article["source"],
-                        article["fetch_timestamp"],
-                        json.dumps(article.get("matched_keywords", [])),
-                    ),
-                )
-                newly_added_articles.append(article)
-                logger.info(
-                    "New article stored: '%s' from %s",
-                    article["title"],
-                    article["source"],
-                )
-            except sqlite3.IntegrityError:
-                logger.debug("Article already exists (URL: %s). Skipping.", article["url"])
-            except Exception as e:
-                logger.error(
-                    "Error inserting article '%s' (%s): %s",
-                    article["title"],
-                    article["url"],
-                    e,
-                )
+                    )
+                except sqlite3.IntegrityError:
+                    logger.debug("Article already exists (URL: %s), skipping", article["url"])
+                except sqlite3.Error as e:
+                    logger.error(
+                        "Error inserting article '%s' (%s): %s",
+                        article.get("title", "Unknown"),
+                        article.get("url", "Unknown"),
+                        e,
+                    )
+        
         return newly_added_articles

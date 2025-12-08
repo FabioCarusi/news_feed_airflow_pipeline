@@ -1,21 +1,17 @@
-# In pytest, è una pratica standard riutilizzare i nomi delle fixture come argomenti
-# delle funzioni di test, il che può causare il warning 'redefined-outer-name' di pylint.
-# Questo warning viene qui ignorato consapevolmente.
+# pylint: disable=redefined-outer-name
 """
-This module contains unit tests for the web scraping Airflow pipeline.
+Unit tests for the news feed pipeline.
 
-It tests:
-'filter_articles_by_keywords' function for correct filtering logic.
-'NotificationFormatter' for generating correct Telegram message chunks.
-'ArticleRepository' for database interactions, including adding articles and handling duplicates.
-'task_db_logger' context manager for capturing and storing logs in the database.
+This module tests:
+- filter_articles_by_keywords: Keyword filtering logic
+- NotificationFormatter: Telegram message chunk generation
+- ArticleRepository: Database operations including article insertion and duplicate handling
 """
 
-import logging
 import sqlite3
 from pathlib import Path
-from typing import Generator
-from unittest.mock import MagicMock
+from typing import Any, Generator
+
 import pytest
 
 from news_feed_pipeline.core.store_news import (
@@ -23,14 +19,14 @@ from news_feed_pipeline.core.store_news import (
     filter_articles_by_keywords,
 )
 from news_feed_pipeline.core.utils import NotificationFormatter
-from news_feed_pipeline.core.log_handler import task_db_logger
 
-# --- Fixtures: Mocks ---
+
+# --- Fixtures ---
 
 
 @pytest.fixture
-def sample_articles() -> list[dict]:
-    """A fixture that provides a list of sample articles."""
+def sample_articles() -> list[dict[str, Any]]:
+    """Provide a list of sample articles for testing."""
     return [
         {
             "title": "Breaking News: Python takes over the world",
@@ -55,78 +51,69 @@ def sample_articles() -> list[dict]:
 
 @pytest.fixture
 def keywords() -> list[str]:
-    """A fixture that provides a list of sample keywords."""
+    """Provide a list of sample keywords for testing."""
     return ["Python", "data science"]
 
 
 @pytest.fixture
 def temp_db(tmp_path: Path) -> Generator[str, None, None]:
-    """
-    A fixture that creates a temporary SQLite database for a test.
-    It uses pytest's 'tmp_path' fixture to create a file in a temporary directory.
+    """Create a temporary SQLite database for testing.
+    
+    Uses pytest's tmp_path fixture to create a file in a temporary directory.
+    The database is automatically cleaned up after the test.
     """
     db_path = tmp_path / "test_news.db"
     repo = ArticleRepository(str(db_path))
     repo.initialize_db()
-    yield str(db_path)  # Provide the path to the test
-    # No cleanup needed, tmp_path is handled by pytest
+    yield str(db_path)
+    # Cleanup is handled automatically by pytest's tmp_path
 
 
-@pytest.fixture
-def mock_task_instance() -> MagicMock:
-    """A fixture that mocks the Airflow TaskInstance object,
-    which is necessary for our logging context manager.
-    """
-    ti = MagicMock()
-    ti.dag_id = "test_dag"
-    ti.task_id = "test_task"
-    return ti
-
-
-# --- Tests for Business Logic (Pure Functions) ---
+# --- Tests for Business Logic ---
 
 
 def test_filter_articles_by_keywords_match(
-    sample_articles: list[dict], keywords: list[str]
+    sample_articles: list[dict[str, Any]], keywords: list[str]
 ) -> None:
-    """Tests that keyword filtering works correctly."""
+    """Test that keyword filtering correctly identifies matching articles."""
     filtered = filter_articles_by_keywords(sample_articles, keywords)
     assert len(filtered) == 2
     assert filtered[0]["title"] == "Breaking News: Python takes over the world"
     assert "python" in filtered[0]["matched_keywords"]
 
 
-def test_filter_articles_no_match(sample_articles: list[dict]) -> None:
-    """Tests that no articles are returned if no keywords match."""
+def test_filter_articles_no_match(sample_articles: list[dict[str, Any]]) -> None:
+    """Test that no articles are returned when no keywords match."""
     filtered = filter_articles_by_keywords(sample_articles, ["nonexistent", "keyword"])
     assert len(filtered) == 0
 
 
 def test_filter_articles_by_keywords_empty_list(keywords: list[str]) -> None:
-    """Tests that an empty list is returned if the input article list is empty."""
+    """Test that an empty list is returned when input article list is empty."""
     filtered = filter_articles_by_keywords([], keywords)
     assert not filtered
 
 
-def test_generate_telegram_chunks(sample_articles: list[dict]) -> None:
-    """Tests that the Telegram formatting works."""
+def test_generate_telegram_chunks(sample_articles: list[dict[str, Any]]) -> None:
+    """Test that Telegram message formatting works correctly."""
     formatter = NotificationFormatter()
     chunks = formatter.generate_telegram_message_chunks(sample_articles, chunk_size=2)
-    assert len(chunks) == 2  # 3 articles, chunk size 2 -> 2 messages
-    assert "<b>Your Daily News Feed" in chunks[0]  # The header is in the first chunk
+    assert len(chunks) == 2  # 3 articles with chunk size 2 -> 2 messages
+    assert "<b>Your Daily News Feed" in chunks[0]  # Header in first chunk
     assert "<b><a href" in chunks[0]  # Verify HTML formatting
-    assert "<b>Your Daily News Feed" not in chunks[1]  # The header is not in the second
+    assert "<b>Your Daily News Feed" not in chunks[1]  # Header not in second chunk
 
 
-# --- Tests for Database Interactions ---
+# --- Tests for Database Operations ---
 
 
 def test_add_articles_and_avoid_duplicates(
-    temp_db: str, sample_articles: list[dict]
+    temp_db: str, sample_articles: list[dict[str, Any]]
 ) -> None:
-    """Tests that DB insertion works and duplicates are ignored."""
+    """Test that database insertion works and duplicates are properly ignored."""
     repo = ArticleRepository(temp_db)
-    # Add a required field from the filtering process
+    
+    # Add required fields from the filtering process
     for article in sample_articles:
         article["matched_keywords"] = ["test"]
         article["fetch_timestamp"] = "2023-01-01T00:00:00"
@@ -139,36 +126,8 @@ def test_add_articles_and_avoid_duplicates(
     newly_added_again = repo.add_articles(sample_articles)
     assert len(newly_added_again) == 0  # No new articles should be added
 
-    # Verify the final state of the DB
+    # Verify the final state of the database
     with sqlite3.connect(temp_db) as conn:
         cursor = conn.cursor()
         count = cursor.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
         assert count == 3
-
-
-# --- Tests for the Custom Logging System ---
-
-
-def test_task_db_logger_captures_logs(
-    temp_db: str, mock_task_instance: MagicMock
-) -> None:
-    """Tests that the `task_db_logger` context manager captures logs
-    from any logger and writes them to the database.
-    """
-    # Logger from a fictional module
-    test_logger = logging.getLogger("my.fictional.module")
-
-    with task_db_logger(db_path=temp_db, ti=mock_task_instance):
-        test_logger.info("Test log INFO")
-        test_logger.warning("Test log WARNING")
-
-    # Verify that the logs were written to the DB
-    with sqlite3.connect(temp_db) as conn:
-        cursor = conn.cursor()
-        logs = cursor.execute(
-            "SELECT level, message, dag_id, task_id FROM logs ORDER BY id"
-        ).fetchall()
-
-    assert len(logs) == 2
-    assert logs[0] == ("INFO", "Test log INFO", "test_dag", "test_task")
-    assert logs[1] == ("WARNING", "Test log WARNING", "test_dag", "test_task")
