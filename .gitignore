@@ -12,3 +12,5 @@ data/query.py
 .pytest_cache/
 */.pytest_cache/
 
+.env
+.coverage
