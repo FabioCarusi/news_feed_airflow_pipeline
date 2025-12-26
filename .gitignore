@@ -8,7 +8,7 @@ __pycache__/
 **/assets/news_feed.db*
 **/data/news_feed.db*
 
-data/query.py
+# Ignora le cartelle di cache di pytest
 .pytest_cache/
 */.pytest_cache/
 
