@@ -18,7 +18,12 @@ dependencies = [
     "apache-airflow>=2.6.0",
     "python-telegram-bot>=20.0",
     "nest-asyncio",
-    "feedparser" 
+    "feedparser",
+    "pydantic>=2.0",
+    "tenacity",
+    "openai",
+    "beautifulsoup4",
+    "requests"
 ]
 [project.optional-dependencies]
 dev = [

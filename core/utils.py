@@ -12,9 +12,7 @@ import json
 import os
 import logging
 from datetime import datetime
-from airflow.utils.email import send_email
-from airflow.models import XCom
-from airflow.sdk import Variable
+# Lazy import airflow modules only where needed to allow testing utils without airflow installed
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +26,26 @@ class ConfigLoader:
             raise FileNotFoundError(f"Config file not found: {source_config_file}")
 
         with open(source_config_file, "r", encoding="utf-8") as f:
-            sources = json.load(f)
-        logger.info("Loaded %d news sources from config file.", len(sources))
-        return sources
+            raw_sources = json.load(f)
+        
+        # Validate with Pydantic
+        # Importing locally to avoid circular imports if any
+        from .types import NewsSourceConfig
+        
+        validated_sources = []
+        for source in raw_sources:
+            try:
+                # Validate and cast to dict for compatibility with existing code
+                # In future we can propagate the objects
+                conf = NewsSourceConfig(**source)
+                validated_sources.append(conf.model_dump()) 
+            except Exception as e:
+                logger.error("Invalid source config: %s - Error: %s", source, e)
+                # We can decide whether to raise or skip. Skipping invalid is safer for runtime.
+                continue
+
+        logger.info("Loaded %d news sources from config file.", len(validated_sources))
+        return validated_sources
 
     def load_keywords(self, keyword_config_file: str) -> list[str]:
         """Loads the keywords configuration from the JSON file."""
@@ -39,6 +54,10 @@ class ConfigLoader:
 
         with open(keyword_config_file, "r", encoding="utf-8") as f:
             keywords = json.load(f)
+            
+        if not isinstance(keywords, list):
+             raise ValueError(f"Keywords config must be a list of strings, got {type(keywords)}")
+             
         logger.info("Loaded %d keywords from config file.", len(keywords))
         return keywords
 
@@ -187,6 +206,10 @@ class AirflowCallbackHandler:
         Callback to send an email notification on DAG success.
         The email contains a summary of the articles found.
         """
+        from airflow.sdk import Variable
+        from airflow.models import XCom
+        from airflow.utils.email import send_email
+
         try:
             recipient = Variable.get("ALERT_EMAIL_RECIPIENT")
         except KeyError:
@@ -235,6 +258,8 @@ class AirflowCallbackHandler:
         Callback to send an email notification on task failure.
         The email contains the task ID, DAG ID, exception, and a link to the logs.
         """
+        from airflow.sdk import Variable
+
         try:
             # Retrieve the recipient's email from Airflow Variables
             recipient = Variable.get("ALERT_EMAIL_RECIPIENT")
@@ -261,6 +286,7 @@ class AirflowCallbackHandler:
         self._send_email(recipient, subject, html_content)
 
     def _send_email(self, recipient: str, subject: str, html_content: str):
+        from airflow.utils.email import send_email
         try:
             send_email(to=[recipient], subject=subject, html_content=html_content)
             logger.info("Email sent successfully to %s", recipient)

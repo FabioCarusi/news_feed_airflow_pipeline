@@ -1,4 +1,4 @@
-"""Definisce il modello AI"""
+"""Defines the AI model"""
 
 import logging
 import json
@@ -11,13 +11,13 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-MAX_CHARS = 8000  # per evitare di far esplodere i token
+MAX_CHARS = 8000  # to prevent token explosion
 
 
 class DailyDigestAgent:
     """
-    Agent per la generazione di un daily digest di notizie tecniche.
-    Utilizza un modello OpenAI per analizzare gli articoli e produrre un riassunto strutturato.
+    Agent for generating a daily digest of technical news.
+    Uses an OpenAI model to analyze articles and produce a structured summary.
     """
 
     def __init__(
@@ -25,16 +25,21 @@ class DailyDigestAgent:
         api_key: str,
         model_name: str,
         base_url: str = "https://openrouter.ai/api/v1",
+        client: Any = None
     ):
-        self.client = OpenAI(base_url=base_url, api_key=api_key)
+        if client:
+             self.client = client
+        else:
+             self.client = OpenAI(base_url=base_url, api_key=api_key)
+             
         self.model_name = model_name
         self.agent_instructions = self._build_instructions()
         self.tools = self._build_tools()
 
     def run_daily_digest_agent(self, articles: list[dict], date_str: str) -> str:
         """
-        Riceve un json con le notizie filtrate e le passa all'agente
-        articles: lista di dict RSS (title, url, summary, source, matched_keywords, ...)
+        Receives a json with filtered news and passes them to the agent.
+        articles: list of RSS dicts (title, url, summary, source, matched_keywords, ...)
         date_str: "YYYY-MM-DD" (Airflow ds)
         """
         if not articles:
@@ -64,14 +69,14 @@ class DailyDigestAgent:
 
     def _call_openai_agent(self, payload: dict) -> str:
         """
-        Gestisce le chiamate al modello
+        Handles calls to the model.
         """
         user_content = (
             "Ecco i dati per il daily digest (JSON):\n\n"
             f"{json.dumps(payload, ensure_ascii=False)}"
         )
 
-        # Prima chiamata
+        # First call
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[
@@ -85,11 +90,11 @@ class DailyDigestAgent:
 
         msg = response.choices[0].message
 
-        # Nessun tool: risposta finale
+        # No tool: final response
         if not getattr(msg, "tool_calls", None):
             return f"Nessun tool trovato: {msg.content}"
 
-        # Eseguiamo i tool richiesti
+        # Execute requested tools
         tool_messages = []
         for tool_call in msg.tool_calls or []:
             fn_name = tool_call.function.name
@@ -113,7 +118,7 @@ class DailyDigestAgent:
                 }
             )
 
-        # Seconda chiamata: istruzioni + stesso payload + risultati tool
+        # Second call: instructions + same payload + tool results
         second_user_content = (
             user_content
             + "\n\nHo eseguito i tool che hai richiesto. Usa i risultati per creare il daily digest."
@@ -152,7 +157,7 @@ class DailyDigestAgent:
         try:
             r = requests.get(url, headers=headers, timeout=60)
         except requests.RequestException as e:
-            logger.error("Errore nella richiesta: %s", e)
+            logger.error("Error in request: %s", e)
             return {
                 "url": url,
                 "status": "error",
@@ -164,7 +169,7 @@ class DailyDigestAgent:
 
         if r.status_code != 200:
             logger.error(
-                "Impossibile recuperare il testo. Status code: %s", r.status_code
+                "Unable to retrieve text. Status code: %s", r.status_code
             )
             return {
                 "url": url,
@@ -191,6 +196,7 @@ class DailyDigestAgent:
 
     @staticmethod
     def _build_instructions() -> str:
+        # Note: These instructions are kept in Italian to ensure the generated daily digest is in Italian.
         return """
     Sei un agente che crea un daily digest di notizie tecniche per uno sviluppatore/data engineer.
 
@@ -219,12 +225,12 @@ class DailyDigestAgent:
     4. Usa sia i riassunti RSS sia il contenuto completo che hai letto per identificare i temi principali della giornata.
     5. Produci un daily digest in italiano con questa struttura:
 
-    - Una breve introduzione (2–3 frasi) che descrive il quadro generale della giornata.
-    - Una lista di 3–7 bullet point, ognuna con:
+    - Una breve introduzione (2-3 frasi) che descrive il quadro generale della giornata.
+    - Una lista di 3-7 bullet point, ognuna con:
         - Un titolo conciso del tema.
-        - Una breve spiegazione (1–2 frasi).
+        - Una breve spiegazione (1-2 frasi).
     - Una sezione finale 'Per approfondire' con l'elenco degli articoli, uno per riga, nel formato:
-        TITOLO ORIGINALE – URL
+        TITOLO ORIGINALE - URL
 
     Regole:
     - Non inventare articoli o URL.
