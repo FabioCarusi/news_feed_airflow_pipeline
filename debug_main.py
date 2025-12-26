@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import logging
 import sys
+from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -19,6 +20,7 @@ from core.store_news import (
 from core.utils import ConfigLoader, NotificationFormatter
 from core.fetch_rss_news import fetch_rss_articles
 from core.send_telegram import send_telegram_messages_in_chunks
+from core.daily_digest_agent import DailyDigestAgent
 
 # Configure logging FIRST to capture all messages
 logging.basicConfig(
@@ -31,7 +33,7 @@ logging.basicConfig(
 )
 logger: logging.Logger = logging.getLogger(__name__)
 
-
+load_dotenv()
 # --- Constants and Configuration ---
 PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR: str = os.path.join(PROJECT_ROOT, "news_feed_pipeline/data")
@@ -43,6 +45,9 @@ DB_NAME: str = "news_feed.db"
 # Telegram credentials from environment
 BOT_TOKEN: Optional[str] = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID: Optional[str] = os.getenv("TELEGRAM_CHAT_ID")
+API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
+MODEL: Optional[str] = os.getenv("MODEL_NAME")
+print(API_KEY)
 
 # Ensure directories exist
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -192,7 +197,10 @@ def run_pipeline() -> None:
 
         if new_articles:
             telegram_chunks: List[str] = generate_telegram_chunks(new_articles)
-            send_telegram_notifications(telegram_chunks, BOT_TOKEN, CHAT_ID)
+            daily_digest_agent: DailyDigestAgent = DailyDigestAgent(api_key=API_KEY, model_name=MODEL)
+            result = daily_digest_agent.run_daily_digest_agent(new_articles, '2025-12-23')
+            logger.info("Daily digest agent completed successfully. \n %s", result)
+            #send_telegram_notifications(telegram_chunks, BOT_TOKEN, CHAT_ID)
         else:
             logger.info("No new relevant articles found. No notifications sent.")
 
