@@ -248,7 +248,7 @@ def news_feed_pipeline() -> None:
         all_fetched_articles, db_path, keywords_to_use
     )
 
-    telegram_message_chunks = generate_telegram_chunks_task(filtered_and_stored_news)
+    # telegram_message_chunks = generate_telegram_chunks_task(filtered_and_stored_news)
     agent_message = run_daily_digest_agent_task(filtered_and_stored_news, ds='{{ds}}')
     
     send_telegram_notification_task(agent_message, BOT_TOKEN,CHAT_ID)
