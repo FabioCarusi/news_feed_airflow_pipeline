@@ -230,7 +230,7 @@ def news_feed_pipeline() -> None:
         return len(telegram_message_chunks)
 
     @task
-    def run_daily_digest_agent_task(articles: list[dict[str, Any]], ds: str = "{{ ds }}") -> str:
+    def run_daily_digest_agent_task(articles: list[dict[str, Any]], ds: str) -> str:
         agent = DailyDigestAgent(API_KEY, MODEL_NAME)
         return agent.run_daily_digest_agent(articles, date_str=ds)
 
