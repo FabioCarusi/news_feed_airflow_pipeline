@@ -230,9 +230,9 @@ def news_feed_pipeline() -> None:
         return len(telegram_message_chunks)
 
     @task
-    def run_daily_digest_agent_task(articles: list[dict[str, Any]], ds: str) -> str:
+    def run_daily_digest_agent_task(articles: list[dict[str, Any]], ds: str = "{{ ds }}") -> str:
         agent = DailyDigestAgent(API_KEY, MODEL_NAME)
-        return agent.run_daily_digest_agent(articles, ds)
+        return agent.run_daily_digest_agent(articles, date_str=ds)
 
     # DAG workflow definition
     sources_to_fetch = config_loader.load_news_sources(NEWS_SOURCES_CONFIG_FILE)
@@ -249,7 +249,7 @@ def news_feed_pipeline() -> None:
     )
 
     # telegram_message_chunks = generate_telegram_chunks_task(filtered_and_stored_news)
-    agent_message = run_daily_digest_agent_task(filtered_and_stored_news, ds='{{ds}}')
+    agent_message = run_daily_digest_agent_task(filtered_and_stored_news) 
     
     send_telegram_notification_task(agent_message, BOT_TOKEN,CHAT_ID)
     #logger.info(agent_message)
