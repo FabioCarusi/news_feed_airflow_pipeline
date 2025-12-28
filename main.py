@@ -18,7 +18,9 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from airflow.decorators import dag, task
-from airflow.sdk import Variable, Context
+from airflow.sdk import Variable
+from airflow.utils.context import get_current_context
+
 
 from news_feed_pipeline.core.fetch_rss_news import fetch_rss_articles  # type: ignore
 from news_feed_pipeline.core.send_telegram import (  # type: ignore
@@ -231,8 +233,8 @@ def news_feed_pipeline() -> None:
 
     @task
     def run_daily_digest_agent_task(articles: list[dict[str, Any]]) -> str:
-        context = Context()
-        ds = context.get("ds")
+        context = get_current_context()
+        ds = context['ds']
         agent = DailyDigestAgent(API_KEY, MODEL_NAME)
         return agent.run_daily_digest_agent(articles, date_str=ds)
 
