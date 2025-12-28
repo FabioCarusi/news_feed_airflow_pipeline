@@ -256,7 +256,7 @@ def news_feed_pipeline() -> None:
     # telegram_message_chunks = generate_telegram_chunks_task(filtered_and_stored_news)
     agent_message = run_daily_digest_agent_task(filtered_and_stored_news) 
     
-    send_telegram_notification_task(agent_message, BOT_TOKEN,CHAT_ID)
+    send_telegram_notification_task([agent_message], BOT_TOKEN,CHAT_ID)
     #logger.info(agent_message)
 
 

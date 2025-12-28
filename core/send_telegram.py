@@ -79,9 +79,10 @@ def send_telegram_messages_in_chunks(
 
         except requests.exceptions.RequestException as e:
             logger.error(
-                "Failed to send message %d/%d: %s",
+                "Failed to send message %d/%d: %s response: %s",
                 index,
                 len(messages),
+                response,
                 e
             )
             raise
