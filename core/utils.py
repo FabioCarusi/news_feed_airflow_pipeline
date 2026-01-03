@@ -221,10 +221,11 @@ class AirflowCallbackHandler:
         dag_run = context["dag_run"]
         dag_id = dag_run.dag_id
 
-        # Pull the list of new articles from the final storage task's XCom
-        newly_added_articles = XCom.get_one(
+        # Pull the list of filtered articles from the filter task's XCom
+        # Note: Articles are now filtered but not yet stored (stored after send)
+        filtered_articles = XCom.get_one(
             dag_id=dag_id,
-            task_id="filter_and_store_all_news",
+            task_id="filter_all_news",
             key="return_value",
             run_id=dag_run.run_id,
             include_prior_dates=False,
@@ -232,13 +233,13 @@ class AirflowCallbackHandler:
 
         subject = f"[Airflow] SUCCESS: DAG {dag_id} completed"
 
-        if newly_added_articles:
+        if filtered_articles:
             logger.info(
-                "Found %d new articles to include in success email.",
-                len(newly_added_articles),
+                "Found %d filtered articles to include in success email.",
+                len(filtered_articles),
             )
             html_content = self._formatter.generate_full_html_content(
-                newly_added_articles
+                filtered_articles
             )
         else:
             logger.info(

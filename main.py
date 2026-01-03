@@ -132,20 +132,18 @@ def news_feed_pipeline() -> None:
         return articles
 
     @task
-    def filter_and_store_all_news(
+    def filter_all_news(
         all_fetched_articles_list: list[list[dict[str, Any]]],
-        db_path: str,
         keywords: list[str],
     ) -> list[dict[str, Any]]:
-        """Filter articles by keywords and store them in the database.
+        """Filter articles by keywords WITHOUT storing to database.
 
         Args:
             all_fetched_articles_list: Nested list of articles from all sources.
-            db_path: Path to the SQLite database.
             keywords: List of keywords to filter articles.
 
         Returns:
-            List of newly added articles.
+            List of filtered articles (not yet stored).
         """
         # Flatten the nested list of articles
         flattened_articles = [
@@ -164,16 +162,36 @@ def news_feed_pipeline() -> None:
         )
 
         # Filter articles by keywords
-        articles_to_store = filter_articles_by_keywords(
+        filtered_articles = filter_articles_by_keywords(
             articles=flattened_articles, keywords=keywords
         )
 
-        # Store filtered articles in database
+        logger.info("Filtered %d articles matching keywords", len(filtered_articles))
+        return filtered_articles
+
+    @task
+    def store_sent_articles(
+        filtered_articles: list[dict[str, Any]],
+        db_path: str,
+    ) -> int:
+        """Store articles in database AFTER successful Telegram send.
+
+        Args:
+            filtered_articles: List of filtered articles to store.
+            db_path: Path to the SQLite database.
+
+        Returns:
+            Number of newly stored articles.
+        """
+        if not filtered_articles:
+            logger.info("No articles to store")
+            return 0
+
         repo = ArticleRepository(db_path)
-        newly_added_articles = repo.add_articles(articles_to_store)
+        newly_added_articles = repo.add_articles(filtered_articles)
 
         logger.info("Successfully stored %d new articles", len(newly_added_articles))
-        return newly_added_articles
+        return len(newly_added_articles)
 
     @task
     def generate_telegram_chunks_task(
@@ -249,15 +267,19 @@ def news_feed_pipeline() -> None:
         source_config=sources_to_fetch
     )
 
-    filtered_and_stored_news = filter_and_store_all_news(
-        all_fetched_articles, db_path, keywords_to_use
+    # Filter articles WITHOUT storing (idempotency fix)
+    filtered_news = filter_all_news(
+        all_fetched_articles, keywords_to_use
     )
 
-    # telegram_message_chunks = generate_telegram_chunks_task(filtered_and_stored_news)
-    agent_message = run_daily_digest_agent_task(filtered_and_stored_news) 
+    # Generate daily digest message
+    agent_message = run_daily_digest_agent_task(filtered_news)
     
-    send_telegram_notification_task([agent_message], BOT_TOKEN,CHAT_ID)
-    #logger.info(agent_message)
+    # Send to Telegram
+    send_telegram_notification_task([agent_message], BOT_TOKEN, CHAT_ID)
+    
+    # Store articles ONLY AFTER successful send (idempotency fix)
+    store_sent_articles(filtered_news, db_path)
 
 
 
