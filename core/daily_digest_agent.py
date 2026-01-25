@@ -229,8 +229,7 @@ class DailyDigestAgent:
     - Una lista di 3-7 bullet point, ognuna con:
         - Un titolo conciso del tema.
         - Una breve spiegazione (1-2 frasi).
-    - Una sezione finale 'Per approfondire' con l'elenco degli articoli, uno per riga, nel formato:
-        TITOLO ORIGINALE - URL
+        - La URL all'articolo originale.
 
     Regole:
     - Non inventare articoli o URL.
