@@ -49,7 +49,7 @@ BOT_TOKEN = Variable.get(key="TELEGRAM_BOT_TOKEN", default=None)
 CHAT_ID = Variable.get(key="TELEGRAM_CHAT_ID", default=None)
 API_KEY = Variable.get(key="OPENAI_API_KEY", default=None)
 MODEL_NAME = Variable.get(key="MODEL_NAME", default=None)
-FALLBACK_MODEL_NAME = Variable.get(key="FALLBACK_MODEL_NAME", default="google/gemini-2.0-flash-lite-preview-02-05:free")
+FALLBACK_MODEL_NAME = Variable.get(key="FALLBACK_MODEL_NAME", default="meta-llama/llama-3.3-70b-instruct:free")
 
 logger = logging.getLogger(__name__)
 

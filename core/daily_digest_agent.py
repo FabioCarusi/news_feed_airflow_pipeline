@@ -24,7 +24,7 @@ class DailyDigestAgent:
         self,
         api_key: str,
         model_name: str,
-        fallback_model_name: str = "google/gemini-2.0-flash-lite-preview-02-05:free",
+        fallback_model_name: str = "meta-llama/llama-3.3-70b-instruct:free",
         base_url: str = "https://openrouter.ai/api/v1",
         client: Any = None
     ):
