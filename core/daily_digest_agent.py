@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 import requests
 from bs4 import BeautifulSoup
-from openai import OpenAI
+from openai import OpenAI, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class DailyDigestAgent:
         self,
         api_key: str,
         model_name: str,
+        fallback_model_name: str = "google/gemini-2.0-flash-lite-preview-02-05:free",
         base_url: str = "https://openrouter.ai/api/v1",
         client: Any = None
     ):
@@ -33,6 +34,7 @@ class DailyDigestAgent:
              self.client = OpenAI(base_url=base_url, api_key=api_key)
              
         self.model_name = model_name
+        self.fallback_model_name = fallback_model_name
         self.agent_instructions = self._build_instructions()
         self.tools = self._build_tools()
 
@@ -69,16 +71,38 @@ class DailyDigestAgent:
 
     def _call_openai_agent(self, payload: dict) -> str:
         """
-        Handles calls to the model.
+        Handles calls to the model with fallback mechanism.
+        """
+        try:
+            return self._execute_agent_flow(self.model_name, payload)
+        except NotFoundError as e:
+            logger.warning(
+                "Primary model %s not found (404). Retrying with fallback model %s. Error: %s",
+                self.model_name,
+                self.fallback_model_name,
+                e
+            )
+            try:
+                return self._execute_agent_flow(self.fallback_model_name, payload)
+            except Exception as e_fallback:
+                logger.error("Fallback model %s also failed: %s", self.fallback_model_name, e_fallback)
+                raise
+        except Exception as e:
+            logger.error("Error calling OpenAI agent: %s", e)
+            raise
+
+    def _execute_agent_flow(self, model: str, payload: dict) -> str:
+        """
+        Executes the logic of tool calls and final generation for a specific model.
         """
         user_content = (
             "Ecco i dati per il daily digest (JSON):\n\n"
             f"{json.dumps(payload, ensure_ascii=False)}"
         )
 
-        # First call
+        # First call: initial thoughts and possible tool use
         response = self.client.chat.completions.create(
-            model=self.model_name,
+            model=model,
             messages=[
                 {"role": "system", "content": self.agent_instructions},
                 {"role": "user", "content": user_content},
@@ -92,7 +116,7 @@ class DailyDigestAgent:
 
         # No tool: final response
         if not getattr(msg, "tool_calls", None):
-            return f"Nessun tool trovato: {msg.content}"
+            return msg.content or "Nessun contenuto prodotto"
 
         # Execute requested tools
         tool_messages = []
@@ -118,7 +142,7 @@ class DailyDigestAgent:
                 }
             )
 
-        # Second call: instructions + same payload + tool results
+        # Second call: use tool results to generate final response
         second_user_content = (
             user_content
             + "\n\nHo eseguito i tool che hai richiesto. Usa i risultati per creare il daily digest."
@@ -131,7 +155,7 @@ class DailyDigestAgent:
         ]
 
         final_response = self.client.chat.completions.create(
-            model=self.model_name,
+            model=model,
             messages=second_messages,
             temperature=0.3,
         )
