@@ -110,6 +110,7 @@ class DailyDigestAgent:
             tools=self.tools,
             tool_choice="auto",
             temperature=0.3,
+            stream=False
         )
 
         msg = response.choices[0].message
