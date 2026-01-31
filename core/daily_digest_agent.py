@@ -261,6 +261,7 @@ class DailyDigestAgent:
     - Non tradurre i titoli: mantieni i titoli originali.
     - Puoi ignorare articoli troppo marginali o ripetitivi.
     - Rispondi sempre in italiano.
+    - Il messaggio deve contenere solo il daily digest.
     """.strip()
 
     @staticmethod
