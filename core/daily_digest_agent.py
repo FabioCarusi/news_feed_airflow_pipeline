@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 import requests
 from bs4 import BeautifulSoup
-from openai import OpenAI, NotFoundError
+from openai import OpenAI, NotFoundError, RateLimitError, APIStatusError
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +87,32 @@ class DailyDigestAgent:
             except Exception as e_fallback:
                 logger.error("Fallback model %s also failed: %s", self.fallback_model_name, e_fallback)
                 raise
+        except (RateLimitError, APIStatusError) as e:
+            if isinstance(e, RateLimitError) or (isinstance(e, APIStatusError) and e.status_code == 403):
+                 logger.warning("API quota exceeded or forbidden (Plan Expired?). Switching to link-only fallback. Error: %s", e)
+                 return self._generate_fallback_digest(payload)
+            logger.error("API Error: %s", e)
+            raise
         except Exception as e:
             logger.error("Error calling OpenAI agent: %s", e)
             raise
+
+    def _generate_fallback_digest(self, payload: dict) -> str:
+        """
+        Generates a simple fallback digest with just links when the API is unavailable.
+        """
+        date_human = payload.get("date", "Oggi")
+        articles = payload.get("articles", [])
+        
+        digest = f"<b>Your Daily News Feed - {date_human} (Fallback Mode)</b>\n\n"
+        digest += "<i>Il piano API AI riscontra problemi di quota. Ecco i link diretti:</i>\n\n"
+        
+        for article in articles:
+            title = article.get("title", "No Title")
+            url = article.get("url", "#")
+            digest += f"• <a href='{url}'>{title}</a>\n"
+            
+        return digest
 
     def _execute_agent_flow(self, model: str, payload: dict) -> str:
         """
