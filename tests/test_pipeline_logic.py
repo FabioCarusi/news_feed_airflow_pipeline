@@ -16,6 +16,7 @@ import pytest
 
 from news_feed_pipeline.core.store_news import (
     ArticleRepository,
+    compute_title_hash,
     filter_articles_by_keywords,
 )
 from news_feed_pipeline.core.utils import NotificationFormatter
@@ -131,3 +132,102 @@ def test_add_articles_and_avoid_duplicates(
         cursor = conn.cursor()
         count = cursor.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
         assert count == 3
+
+
+# --- Tests for Title Hash Deduplication ---
+
+
+def test_compute_title_hash_consistency() -> None:
+    """Test that the same title always produces the same hash."""
+    title = "Breaking News: Python takes over the world"
+    assert compute_title_hash(title) == compute_title_hash(title)
+
+
+def test_compute_title_hash_normalization() -> None:
+    """Test that titles differing only in case/whitespace produce the same hash."""
+    hash1 = compute_title_hash("Breaking News: Python")
+    hash2 = compute_title_hash("  breaking  news:  python  ")
+    hash3 = compute_title_hash("BREAKING NEWS: PYTHON")
+    assert hash1 == hash2 == hash3
+
+
+def test_compute_title_hash_different_titles() -> None:
+    """Test that different titles produce different hashes."""
+    hash1 = compute_title_hash("Article A")
+    hash2 = compute_title_hash("Article B")
+    assert hash1 != hash2
+
+
+def test_add_articles_dedup_by_title_hash(temp_db: str) -> None:
+    """Test that articles with different URLs but same title are deduplicated."""
+    repo = ArticleRepository(temp_db)
+
+    article_v1 = {
+        "title": "Same Title Here",
+        "url": "http://example.com/v1",
+        "source": "Source1",
+        "fetch_timestamp": "2023-01-01T00:00:00",
+        "matched_keywords": ["test"],
+    }
+    article_v2 = {
+        "title": "Same Title Here",
+        "url": "http://example.com/v2",  # Different URL, same title
+        "source": "Source2",
+        "fetch_timestamp": "2023-01-02T00:00:00",
+        "matched_keywords": ["test"],
+    }
+
+    added1 = repo.add_articles([article_v1])
+    assert len(added1) == 1
+
+    added2 = repo.add_articles([article_v2])
+    assert len(added2) == 0  # Should be rejected by title_hash
+
+    with sqlite3.connect(temp_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+        assert count == 1
+
+
+def test_get_known_identifiers(temp_db: str) -> None:
+    """Test that get_known_identifiers returns stored URLs and hashes."""
+    repo = ArticleRepository(temp_db)
+
+    articles = [
+        {
+            "title": "Test Article",
+            "url": "http://example.com/test",
+            "source": "TestSource",
+            "fetch_timestamp": "2023-01-01T00:00:00",
+            "matched_keywords": ["test"],
+        }
+    ]
+    repo.add_articles(articles)
+
+    known_urls, known_hashes = repo.get_known_identifiers()
+    assert "http://example.com/test" in known_urls
+    assert compute_title_hash("Test Article") in known_hashes
+
+
+def test_title_hash_stored_in_db(temp_db: str) -> None:
+    """Test that title_hash is correctly stored in the database."""
+    repo = ArticleRepository(temp_db)
+
+    articles = [
+        {
+            "title": "Hash Storage Test",
+            "url": "http://example.com/hash-test",
+            "source": "Source",
+            "fetch_timestamp": "2023-01-01T00:00:00",
+            "matched_keywords": [],
+        }
+    ]
+    repo.add_articles(articles)
+
+    with sqlite3.connect(temp_db) as conn:
+        cursor = conn.cursor()
+        row = cursor.execute(
+            "SELECT title_hash FROM articles WHERE url = ?",
+            ("http://example.com/hash-test",),
+        ).fetchone()
+        assert row is not None
+        assert row[0] == compute_title_hash("Hash Storage Test")

@@ -29,6 +29,7 @@ from news_feed_pipeline.core.send_telegram import (  # type: ignore
 )
 from news_feed_pipeline.core.store_news import (  # type: ignore
     ArticleRepository,
+    compute_title_hash,
     filter_articles_by_keywords,
 )
 from news_feed_pipeline.core.utils import (  # type: ignore
@@ -171,6 +172,48 @@ def news_feed_pipeline() -> None:
         return filtered_articles
 
     @task
+    def deduplicate_articles_task(
+        filtered_articles: list[dict[str, Any]],
+        db_path: str,
+    ) -> list[dict[str, Any]]:
+        """Remove articles already present in the database.
+
+        Checks both URL and title_hash to filter out duplicates
+        before sending to the agent and Telegram.
+
+        Args:
+            filtered_articles: Keyword-filtered articles.
+            db_path: Path to the SQLite database.
+
+        Returns:
+            List of articles not yet seen in the database.
+        """
+        if not filtered_articles:
+            return []
+
+        repo = ArticleRepository(db_path)
+        known_urls, known_hashes = repo.get_known_identifiers()
+
+        new_articles = []
+        for article in filtered_articles:
+            url = article.get("url", "")
+            title_hash = compute_title_hash(article.get("title", ""))
+
+            if url in known_urls or title_hash in known_hashes:
+                logger.debug(
+                    "Skipping already-known article: '%s'", article.get("title", "")
+                )
+                continue
+            new_articles.append(article)
+
+        logger.info(
+            "Deduplication: %d filtered -> %d new articles",
+            len(filtered_articles),
+            len(new_articles),
+        )
+        return new_articles
+
+    @task
     def store_sent_articles(
         filtered_articles: list[dict[str, Any]],
         db_path: str,
@@ -268,19 +311,22 @@ def news_feed_pipeline() -> None:
         source_config=sources_to_fetch
     )
 
-    # Filter articles WITHOUT storing (idempotency fix)
+    # Filter articles by keywords
     filtered_news = filter_all_news(
         all_fetched_articles, keywords_to_use
     )
 
-    # Generate daily digest message
-    agent_message = run_daily_digest_agent_task(filtered_news)
-    
+    # Remove articles already seen in previous runs
+    new_articles = deduplicate_articles_task(filtered_news, db_path)
+
+    # Generate daily digest message (only new articles)
+    agent_message = run_daily_digest_agent_task(new_articles)
+
     # Send to Telegram
     send_telegram_notification_task([agent_message], BOT_TOKEN, CHAT_ID)
-    
-    # Store articles ONLY AFTER successful send (idempotency fix)
-    store_sent_articles(filtered_news, db_path)
+
+    # Store articles AFTER successful send
+    store_sent_articles(new_articles, db_path)
 
 
 

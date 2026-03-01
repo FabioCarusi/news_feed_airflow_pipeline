@@ -5,10 +5,12 @@ This module provides functionalities for storing and managing news articles
 in a SQLite database.
 
 Components:
+- compute_title_hash: Generate SHA-256 hash from normalized title
 - filter_articles_by_keywords: Filter articles based on keyword matching
 - ArticleRepository: Database operations handler for articles
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -17,6 +19,21 @@ from contextlib import contextmanager
 from typing import Any, Generator, Sequence
 
 logger = logging.getLogger(__name__)
+
+
+def compute_title_hash(title: str) -> str:
+    """Generate a SHA-256 hash from a normalized article title.
+
+    Normalization: lowercase, strip whitespace, collapse internal whitespace.
+
+    Args:
+        title: The raw article title.
+
+    Returns:
+        Hex-encoded SHA-256 hash string.
+    """
+    normalized = " ".join(title.lower().split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def filter_articles_by_keywords(
@@ -99,7 +116,8 @@ class ArticleRepository:
     def initialize_db(self) -> None:
         """Initialize the database and create tables if they don't exist.
 
-        Creates the articles table with appropriate schema.
+        Creates the articles table with appropriate schema and runs
+        any necessary migrations for existing databases.
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -109,6 +127,7 @@ class ArticleRepository:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     url TEXT UNIQUE NOT NULL,
                     title TEXT NOT NULL,
+                    title_hash TEXT UNIQUE,
                     source TEXT,
                     fetch_timestamp TEXT NOT NULL,
                     match_keywords TEXT,
@@ -124,6 +143,27 @@ class ArticleRepository:
                 )
                 """
             )
+
+            # --- Migration: add title_hash column to existing DB ---
+            cursor.execute("PRAGMA table_info(articles)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+            if "title_hash" not in existing_columns:
+                logger.info("Migrating articles table: adding title_hash column")
+                cursor.execute("ALTER TABLE articles ADD COLUMN title_hash TEXT")
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_title_hash "
+                    "ON articles(title_hash)"
+                )
+                # Backfill hashes for existing rows
+                cursor.execute("SELECT id, title FROM articles WHERE title_hash IS NULL")
+                for row_id, title in cursor.fetchall():
+                    t_hash = compute_title_hash(title)
+                    cursor.execute(
+                        "UPDATE articles SET title_hash = ? WHERE id = ?",
+                        (t_hash, row_id),
+                    )
+                logger.info("Backfilled title_hash for existing articles")
+
             logger.info("Database initialized successfully at %s", self.db_path)
 
     def add_embedding(self, article_id: int, embedding: Sequence[float]) -> None:
@@ -194,13 +234,39 @@ class ArticleRepository:
             )
         return articles
 
-    def _exists_by_url(self, conn: sqlite3.Connection, url: str) -> bool:
+    def _exists(self, conn: sqlite3.Connection, url: str, title_hash: str) -> bool:
+        """Check if an article already exists by URL or title_hash."""
         cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM articles WHERE url = ? LIMIT 1", (url,))
+        cursor.execute(
+            "SELECT 1 FROM articles WHERE url = ? OR title_hash = ? LIMIT 1",
+            (url, title_hash),
+        )
         return cursor.fetchone() is not None
+
+    def get_known_identifiers(self) -> tuple[set[str], set[str]]:
+        """Return sets of known URLs and title_hashes from the database.
+
+        Returns:
+            Tuple of (known_urls, known_hashes).
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT url, title_hash FROM articles")
+            rows = cursor.fetchall()
+
+        known_urls: set[str] = set()
+        known_hashes: set[str] = set()
+        for url, t_hash in rows:
+            known_urls.add(url)
+            if t_hash:
+                known_hashes.add(t_hash)
+        return known_urls, known_hashes
 
     def add_articles(self, articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Add articles to the database, skipping duplicates.
+
+        Deduplication is performed on both URL and title_hash.
+
         Args:
             articles: List of article dictionaries to insert.
         Returns:
@@ -213,19 +279,27 @@ class ArticleRepository:
 
             for article in articles:
                 url = article["url"]
-                if self._exists_by_url(conn, url):
-                    logger.debug("Article already exists (URL: %s), skipping", url)
+                title_hash = compute_title_hash(article["title"])
+
+                if self._exists(conn, url, title_hash):
+                    logger.debug(
+                        "Article already exists (URL: %s, hash: %s), skipping",
+                        url,
+                        title_hash[:12],
+                    )
                     continue
 
                 try:
                     cursor.execute(
                         """
-                        INSERT INTO articles (url, title, source, fetch_timestamp, match_keywords)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO articles
+                            (url, title, title_hash, source, fetch_timestamp, match_keywords)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
                             article["url"],
                             article["title"],
+                            title_hash,
                             article["source"],
                             article["fetch_timestamp"],
                             json.dumps(article.get("matched_keywords", [])),
