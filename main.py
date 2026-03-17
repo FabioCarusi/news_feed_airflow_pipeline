@@ -215,14 +215,20 @@ def news_feed_pipeline() -> None:
 
     @task
     def store_sent_articles(
-        filtered_articles: list[dict[str, Any]],
+        filtered_articles: list[dict[str, Any]] | None,
         db_path: str,
+        chunks_sent: int,
     ) -> int:
         """Store articles in database AFTER successful Telegram send.
 
+        The `chunks_sent` parameter is used only to enforce task ordering:
+        this task must run after send_telegram_notification_task completes.
+
         Args:
-            filtered_articles: List of filtered articles to store.
+            filtered_articles: List of filtered articles to store. May be None
+                               if deduplicate_articles_task returned [] (XCom default).
             db_path: Path to the SQLite database.
+            chunks_sent: Number of Telegram chunks sent (used for dependency only).
 
         Returns:
             Number of newly stored articles.
@@ -262,7 +268,7 @@ def news_feed_pipeline() -> None:
 
     @task
     def send_telegram_notification_task(
-        telegram_message_chunks: list[str],
+        telegram_message_chunks: list[str | None],
         bot_token: str | None,
         chat_id: str | None,
     ) -> int:
@@ -270,6 +276,7 @@ def news_feed_pipeline() -> None:
 
         Args:
             telegram_message_chunks: List of message chunks to send.
+                                     None or empty strings are skipped.
             bot_token: Telegram bot token.
             chat_id: Telegram chat ID.
 
@@ -279,6 +286,13 @@ def news_feed_pipeline() -> None:
         Raises:
             ValueError: If Telegram credentials are not configured.
         """
+        # Filter out None / empty strings (e.g. when no articles were found)
+        valid_chunks = [c for c in telegram_message_chunks if c]
+
+        if not valid_chunks:
+            logger.info("No message content to send. Skipping Telegram notification.")
+            return 0
+
         if not bot_token or not chat_id:
             logger.error("Telegram credentials missing. Cannot send notification")
             raise ValueError("Telegram credentials not configured correctly")
@@ -286,18 +300,31 @@ def news_feed_pipeline() -> None:
         send_telegram_messages_in_chunks(
             bot_token=bot_token,
             chat_id=chat_id,
-            messages=telegram_message_chunks,
+            messages=valid_chunks,
         )
 
         logger.info(
-            "Successfully sent %d Telegram message chunks", len(telegram_message_chunks)
+            "Successfully sent %d Telegram message chunks", len(valid_chunks)
         )
-        return len(telegram_message_chunks)
+        return len(valid_chunks)
 
     @task
-    def run_daily_digest_agent_task(articles: list[dict[str, Any]]) -> str:
+    def run_daily_digest_agent_task(articles: list[dict[str, Any]] | None) -> str:
+        """Run the daily digest agent on new articles.
+
+        Args:
+            articles: List of new articles. May be None or empty if no new
+                      articles were found (XCom default when task returns []).
+
+        Returns:
+            Formatted daily digest string, or empty string if no articles.
+        """
+        if not articles:
+            logger.info("No new articles to summarize. Skipping daily digest agent.")
+            return ""
+
         context = get_current_context()
-        ds = context.get('ds', datetime.now().strftime('%Y-%m-%d'))
+        ds = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
         agent = DailyDigestAgent(API_KEY, MODEL_NAME, fallback_model_name=FALLBACK_MODEL_NAME)
         return agent.run_daily_digest_agent(articles, date_str=ds)
 
@@ -323,10 +350,10 @@ def news_feed_pipeline() -> None:
     agent_message = run_daily_digest_agent_task(new_articles)
 
     # Send to Telegram
-    send_telegram_notification_task([agent_message], BOT_TOKEN, CHAT_ID)
+    chunks_sent = send_telegram_notification_task([agent_message], BOT_TOKEN, CHAT_ID)
 
-    # Store articles AFTER successful send
-    store_sent_articles(new_articles, db_path)
+    # Store articles AFTER successful send (chunks_sent enforces task ordering)
+    store_sent_articles(new_articles, db_path, chunks_sent)
 
 
 

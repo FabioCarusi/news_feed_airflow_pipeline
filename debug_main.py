@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional
 # Core pipeline imports (all at top)
 from core.store_news import (
     ArticleRepository,
+    compute_title_hash,
     filter_articles_by_keywords,
 )
 from core.utils import ConfigLoader, NotificationFormatter
@@ -46,8 +47,8 @@ DB_NAME: str = "news_feed.db"
 BOT_TOKEN: Optional[str] = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID: Optional[str] = os.getenv("TELEGRAM_CHAT_ID")
 API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-MODEL: Optional[str] = os.getenv("MODEL_NAME")
-print(API_KEY)
+MODEL_NAME: Optional[str] = os.getenv("MODEL_NAME")
+FALLBACK_MODEL_NAME: str = os.getenv("FALLBACK_MODEL_NAME", "openai/gpt-oss-20b:free")
 
 # Ensure directories exist
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -105,10 +106,10 @@ def fetch_all_headlines(sources_config: List[SourceConfig]) -> ArticlesList:
     return all_articles
 
 
-def filter_and_store_news(
-    all_articles_list: ArticlesList, db_path: str, keywords: List[str]
+def filter_news(
+    all_articles_list: ArticlesList, keywords: List[str]
 ) -> List[ArticleDict]:
-    """Filter articles by keywords and store new ones in database."""
+    """Filter articles by keywords WITHOUT storing to database."""
     logger.info("Processing articles from %d sources", len(all_articles_list))
 
     # Flatten articles with type checking
@@ -126,19 +127,60 @@ def filter_and_store_news(
     logger.info("Total fetched articles: %d", len(flattened_articles))
 
     # Filter by keywords
-    articles_to_store: List[ArticleDict] = filter_articles_by_keywords(
+    filtered_articles: List[ArticleDict] = filter_articles_by_keywords(
         flattened_articles, keywords
     )
     logger.info(
-        "Found %d relevant articles after keyword filtering.", len(articles_to_store)
+        "Found %d relevant articles after keyword filtering.", len(filtered_articles)
     )
 
-    # Store new articles
-    repo: ArticleRepository = ArticleRepository(db_path)
-    newly_added_articles: List[ArticleDict] = repo.add_articles(articles_to_store)
-    logger.info("Stored %d new articles in database.", len(newly_added_articles))
+    return filtered_articles
 
-    return newly_added_articles
+
+def deduplicate_articles(
+    filtered_articles: List[ArticleDict], db_path: str
+) -> List[ArticleDict]:
+    """Remove articles already present in the database.
+
+    Checks both URL and title_hash to filter out duplicates
+    before sending to the agent and Telegram.
+    """
+    if not filtered_articles:
+        return []
+
+    repo: ArticleRepository = ArticleRepository(db_path)
+    known_urls, known_hashes = repo.get_known_identifiers()
+
+    new_articles: List[ArticleDict] = []
+    for article in filtered_articles:
+        url = article.get("url", "")
+        title_hash = compute_title_hash(article.get("title", ""))
+
+        if url in known_urls or title_hash in known_hashes:
+            logger.debug(
+                "Skipping already-known article: '%s'", article.get("title", "")
+            )
+            continue
+        new_articles.append(article)
+
+    logger.info(
+        "Deduplication: %d filtered -> %d new articles",
+        len(filtered_articles),
+        len(new_articles),
+    )
+    return new_articles
+
+
+def store_sent_articles(articles: List[ArticleDict], db_path: str) -> int:
+    """Store articles in database AFTER successful Telegram send."""
+    if not articles:
+        logger.info("No articles to store.")
+        return 0
+
+    repo: ArticleRepository = ArticleRepository(db_path)
+    newly_added_articles: List[ArticleDict] = repo.add_articles(articles)
+    logger.info("Successfully stored %d new articles.", len(newly_added_articles))
+    return len(newly_added_articles)
 
 
 def generate_telegram_chunks(new_articles: List[ArticleDict]) -> List[str]:
@@ -160,7 +202,7 @@ def send_telegram_notifications(
 
     try:
         send_telegram_messages_in_chunks(bot_token, chat_id, chunks)
-        logger.info("Successfully sent %d Telegram message chunks.")
+        logger.info("Successfully sent %d Telegram message chunks.", len(chunks))
     except (ValueError, ConnectionError, TimeoutError) as e:
         logger.error("Failed to send Telegram notifications: %s", str(e))
 
@@ -190,17 +232,32 @@ def run_pipeline() -> None:
         # Pipeline steps
         initialize_db(db_full_path)
         all_articles: ArticlesList = fetch_all_headlines(sources)
-        new_articles: List[ArticleDict] = filter_and_store_news(
-            all_articles, db_full_path, keywords
+
+        # Filter articles by keywords
+        filtered_articles: List[ArticleDict] = filter_news(all_articles, keywords)
+
+        # Remove articles already seen in previous runs
+        new_articles: List[ArticleDict] = deduplicate_articles(
+            filtered_articles, db_full_path
         )
         new_articles_count = len(new_articles)
 
         if new_articles:
-            telegram_chunks: List[str] = generate_telegram_chunks(new_articles)
-            daily_digest_agent: DailyDigestAgent = DailyDigestAgent(api_key=API_KEY, model_name=MODEL)
-            result = daily_digest_agent.run_daily_digest_agent(new_articles, '2025-12-23')
-            logger.info("Daily digest agent completed successfully. \n %s", result)
-            #send_telegram_notifications(telegram_chunks, BOT_TOKEN, CHAT_ID)
+            # Generate daily digest message (only new articles)
+            agent: DailyDigestAgent = DailyDigestAgent(
+                api_key=API_KEY,
+                model_name=MODEL_NAME,
+                fallback_model_name=FALLBACK_MODEL_NAME,
+            )
+            ds: str = datetime.now().strftime("%Y-%m-%d")
+            agent_message: str = agent.run_daily_digest_agent(new_articles, date_str=ds)
+            logger.info("Daily digest agent completed successfully.\n%s", agent_message)
+
+            # Send to Telegram
+            send_telegram_notifications([agent_message], BOT_TOKEN, CHAT_ID)
+
+            # Store articles AFTER successful send
+            store_sent_articles(new_articles, db_full_path)
         else:
             logger.info("No new relevant articles found. No notifications sent.")
 
