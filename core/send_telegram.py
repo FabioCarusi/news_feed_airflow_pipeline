@@ -6,7 +6,10 @@ using the Telegram Bot API.
 """
 
 import logging
+import re
 import time
+
+from bs4 import BeautifulSoup
 
 import requests
 
@@ -18,6 +21,36 @@ TELEGRAM_TRUNCATION_SUFFIX = "..."
 TELEGRAM_TRUNCATION_LIMIT = TELEGRAM_MAX_MESSAGE_LENGTH - len(TELEGRAM_TRUNCATION_SUFFIX)
 MESSAGE_DELAY_SECONDS = 0.5  # Delay between messages to avoid flood limits
 REQUEST_TIMEOUT_SECONDS = 60
+
+ALLOWED_TAGS = {
+    "b", "strong", "i", "em", "u", "ins",
+    "s", "strike", "del",
+    "a", "code", "pre", "blockquote",
+    "span",
+}
+
+
+def sanitize_telegram_html(text: str) -> str:
+    soup = BeautifulSoup(text, "html.parser")
+
+    for tag in soup.find_all():
+        if tag.name not in ALLOWED_TAGS:
+            tag.replace_with(tag.string or "")
+            continue
+        if tag.name == "a":
+            allowed = {"href"}
+            tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed}
+        elif tag.name == "span":
+            allowed = {"class"}
+            tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed}
+            if tag.get("class") != ["tg-spoiler"]:
+                tag.replace_with(tag.string or "")
+        else:
+            tag.attrs = {}
+
+    result = str(soup)
+    result = re.sub(r"\n\s*\n", "\n", result)
+    return result.strip()
 
 
 def send_telegram_messages_in_chunks(
@@ -46,6 +79,8 @@ def send_telegram_messages_in_chunks(
         try:
             logger.info("Sending message %d/%d to Telegram", index, len(messages))
 
+            message_text = sanitize_telegram_html(message_text)
+
             # Truncate message if it exceeds Telegram's limit
             if len(message_text) > TELEGRAM_MAX_MESSAGE_LENGTH:
                 logger.warning(
@@ -69,6 +104,19 @@ def send_telegram_messages_in_chunks(
                 data=payload,
                 timeout=REQUEST_TIMEOUT_SECONDS
             )
+
+            if response.status_code == 400:
+                logger.warning(
+                    "Message %d rejected as HTML, retrying as plain text",
+                    index
+                )
+                payload.pop("parse_mode")
+                response = requests.post(
+                    api_url,
+                    data=payload,
+                    timeout=REQUEST_TIMEOUT_SECONDS
+                )
+
             response.raise_for_status()
 
             logger.info("Message %d/%d sent successfully", index, len(messages))
