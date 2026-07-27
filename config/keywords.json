@@ -20,5 +20,7 @@
     "bigquery",
     "apache",
     "spark",
-    "spark streaming"
+    "spark streaming",
+    "genai",
+    "llm"
 ]

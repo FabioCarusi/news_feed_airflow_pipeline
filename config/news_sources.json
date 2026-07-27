@@ -4,6 +4,10 @@
         "url": "https://datafloq.com/feed"
     },
     {
+    	"name": "antirez",
+    	"url": "https://antirez.com/rss"
+    },
+    {
         "name": "Smart Data Collective",
         "url": "https://www.smartdatacollective.com/feed/"
     },
