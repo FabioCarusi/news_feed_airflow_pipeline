@@ -51,6 +51,9 @@ CHAT_ID = Variable.get(key="TELEGRAM_CHAT_ID", default=None)
 API_KEY = Variable.get(key="OPENAI_API_KEY", default=None)
 MODEL_NAME = Variable.get(key="MODEL_NAME", default=None)
 FALLBACK_MODEL_NAME = Variable.get(key="FALLBACK_MODEL_NAME", default="openai/gpt-oss-20b:free")
+OMNIROUTE_BASE_URL = Variable.get(key="OMNIROUTE_BASE_URL", default="http://192.168.1.206:20128/v1")
+OMNIROUTE_MODEL_NAME = Variable.get(key="OMNIROUTE_MODEL_NAME", default="combo/my-cheap-fast")
+OMNIROUTE_API_KEY = Variable.get(key="OMNIROUTE_API_KEY", default="sk-omniroute-local")
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +328,13 @@ def news_feed_pipeline() -> None:
 
         context = get_current_context()
         ds = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
-        agent = DailyDigestAgent(API_KEY, MODEL_NAME, fallback_model_name=FALLBACK_MODEL_NAME)
+        agent = DailyDigestAgent(
+            API_KEY, MODEL_NAME,
+            fallback_model_name=FALLBACK_MODEL_NAME,
+            omniroute_base_url=OMNIROUTE_BASE_URL,
+            omniroute_model_name=OMNIROUTE_MODEL_NAME,
+            omniroute_api_key=OMNIROUTE_API_KEY,
+        )
         return agent.run_daily_digest_agent(articles, date_str=ds)
 
     # DAG workflow definition

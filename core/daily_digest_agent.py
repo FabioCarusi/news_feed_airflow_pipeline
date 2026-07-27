@@ -18,6 +18,7 @@ class DailyDigestAgent:
     """
     Agent for generating a daily digest of technical news.
     Uses an OpenAI model to analyze articles and produce a structured summary.
+    Falls back through multiple tiers: primary → fallback → OmniRoute → simple links.
     """
 
     def __init__(
@@ -26,15 +27,26 @@ class DailyDigestAgent:
         model_name: str,
         fallback_model_name: str = "openai/gpt-oss-20b:free",
         base_url: str = "https://openrouter.ai/api/v1",
-        client: Any = None
+        client: Any = None,
+        omniroute_base_url: str | None = None,
+        omniroute_model_name: str | None = None,
+        omniroute_api_key: str = "sk-omniroute-local",
     ):
         if client:
              self.client = client
         else:
              self.client = OpenAI(base_url=base_url, api_key=api_key)
-             
+
+        if omniroute_base_url:
+            self.omniroute_client = OpenAI(
+                base_url=omniroute_base_url, api_key=omniroute_api_key
+            )
+        else:
+            self.omniroute_client = None
+
         self.model_name = model_name
         self.fallback_model_name = fallback_model_name
+        self.omniroute_model_name = omniroute_model_name
         self.agent_instructions = self._build_instructions()
         self.tools = self._build_tools()
 
@@ -71,31 +83,66 @@ class DailyDigestAgent:
 
     def _call_openai_agent(self, payload: dict) -> str:
         """
-        Handles calls to the model with fallback mechanism.
+        Handles calls to the model with multi-tier fallback mechanism:
+        1. Primary model (OpenRouter)
+        2. Fallback model (OpenRouter)
+        3. OmniRoute local server (if configured)
+        4. Simple link-only digest
         """
+        # Tier 1: Primary model
         try:
             return self._execute_agent_flow(self.model_name, payload)
         except NotFoundError as e:
             logger.warning(
-                "Primary model %s not found (404). Retrying with fallback model %s. Error: %s",
+                "Primary model %s not found (404). Error: %s",
                 self.model_name,
-                self.fallback_model_name,
                 e
             )
-            try:
-                return self._execute_agent_flow(self.fallback_model_name, payload)
-            except Exception as e_fallback:
-                logger.error("Fallback model %s also failed: %s", self.fallback_model_name, e_fallback)
-                raise
         except (RateLimitError, APIStatusError) as e:
             if isinstance(e, RateLimitError) or (isinstance(e, APIStatusError) and e.status_code == 403):
-                 logger.warning("API quota exceeded or forbidden (Plan Expired?). Switching to link-only fallback. Error: %s", e)
-                 return self._generate_fallback_digest(payload)
-            logger.error("API Error: %s", e)
-            raise
+                logger.warning("Primary model quota exceeded: %s", e)
+            else:
+                logger.error("API Error on primary: %s", e)
         except Exception as e:
-            logger.error("Error calling OpenAI agent: %s", e)
-            raise
+            logger.error("Unexpected error on primary model: %s", e)
+
+        # Tier 2: Fallback model on OpenRouter
+        try:
+            logger.info(
+                "Trying fallback model %s on OpenRouter",
+                self.fallback_model_name
+            )
+            return self._execute_agent_flow(self.fallback_model_name, payload)
+        except NotFoundError as e:
+            logger.warning("Fallback model %s not found: %s", self.fallback_model_name, e)
+        except (RateLimitError, APIStatusError) as e:
+            if isinstance(e, RateLimitError) or (isinstance(e, APIStatusError) and e.status_code == 403):
+                logger.warning("Fallback model also quota exceeded: %s", e)
+            else:
+                logger.error("API Error on fallback: %s", e)
+        except Exception as e:
+            logger.error("Unexpected error on fallback model: %s", e)
+
+        # Tier 3: OmniRoute local server
+        if self.omniroute_client and self.omniroute_model_name:
+            try:
+                logger.info(
+                    "Trying OmniRoute model %s at %s",
+                    self.omniroute_model_name,
+                    self.omniroute_client.base_url,
+                )
+                return self._execute_agent_flow(
+                    self.omniroute_model_name, payload,
+                    client=self.omniroute_client
+                )
+            except Exception as e:
+                logger.warning("OmniRoute fallback also failed: %s", e)
+        else:
+            logger.info("OmniRoute not configured, skipping tier 3")
+
+        # Tier 4: Simple link-only digest
+        logger.warning("All models exhausted. Generating link-only fallback digest.")
+        return self._generate_fallback_digest(payload)
 
     def _generate_fallback_digest(self, payload: dict) -> str:
         """
@@ -114,17 +161,26 @@ class DailyDigestAgent:
             
         return digest
 
-    def _execute_agent_flow(self, model: str, payload: dict) -> str:
+    def _execute_agent_flow(self, model: str, payload: dict, client: Any = None) -> str:
         """
         Executes the logic of tool calls and final generation for a specific model.
+
+        Args:
+            model: Model identifier to use.
+            payload: Data payload for the digest.
+            client: OpenAI client instance. Defaults to self.client (OpenRouter).
+
+        Returns:
+            Generated digest text.
         """
+        client = client or self.client
         user_content = (
             "Ecco i dati per il daily digest (JSON):\n\n"
             f"{json.dumps(payload, ensure_ascii=False)}"
         )
 
         # First call: initial thoughts and possible tool use
-        response = self.client.chat.completions.create(
+        response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": self.agent_instructions},
@@ -178,7 +234,7 @@ class DailyDigestAgent:
             *tool_messages,
         ]
 
-        final_response = self.client.chat.completions.create(
+        final_response = client.chat.completions.create(
             model=model,
             messages=second_messages,
             temperature=0.3,
